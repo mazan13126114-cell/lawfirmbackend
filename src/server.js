@@ -1,26 +1,27 @@
+// src/server.js
 const express = require('express');
-const sequelize = require('./config/db');
+const cors = require('cors');
+const helmet = require('helmet');
+const dotenv = require('dotenv');
+const { connectDB } = require('./config/db');
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
+app.use(cors());
+app.use(helmet());
 app.use(express.json());
 
 // Test route
 app.get('/', (req, res) => {
-  res.send('Hello LawConnect Backend!');
+  res.send('🚀 LawConnect Backend is running...');
 });
 
-// Start server
-app.listen(PORT, async () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// Connect Database
+connectDB();
 
-  // Test database connection
-  try {
-    await sequelize.authenticate();
-    console.log('✅ Database connected successfully!');
-  } catch (err) {
-    console.error('❌ Database connection failed:', err);
-  }
-});
+// Start Server
+app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
