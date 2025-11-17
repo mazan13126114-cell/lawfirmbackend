@@ -39,14 +39,18 @@ const chatWithAI = async (req, res, next) => {
       });
     }
 
+    // Log the interaction (ensure response is string)
+    const responseStr = typeof aiResponse.message === 'string' ? aiResponse.message : JSON.stringify(aiResponse.message);
     await AiLogs.create({
       userId,
       queryType: 'chatbot',
       prompt: ensureString(message),
-      response: ensureString(aiResponse),
+      response: responseStr,
       model: 'GPT-5',
       status: 'success',
-      metadata: { chatId: aiResponse.chatId }
+      metadata: {
+        chatId: aiResponse.chatId
+      }
     });
 
     res.json({

@@ -142,6 +142,101 @@ const changePasswordValidation = [
   validate
 ];
 
+// ===== CASE VALIDATIONS =====
+
+// Create case validation
+const createCaseValidation = [
+  body('title')
+    .trim()
+    .notEmpty().withMessage('Case title is required')
+    .isLength({ min: 5, max: 255 }).withMessage('Title must be between 5 and 255 characters'),
+  
+  body('description')
+    .trim()
+    .notEmpty().withMessage('Case description is required')
+    .isLength({ min: 20 }).withMessage('Description must be at least 20 characters'),
+  
+  body('caseType')
+    .notEmpty().withMessage('Case type is required')
+    .isIn(['civil', 'criminal', 'corporate', 'family', 'property', 'labor', 'other'])
+    .withMessage('Invalid case type'),
+  
+  body('priority')
+    .optional()
+    .isIn(['low', 'medium', 'high', 'urgent'])
+    .withMessage('Invalid priority level'),
+  
+  validate
+];
+
+// Update case validation
+const updateCaseValidation = [
+  body('title')
+    .optional()
+    .trim()
+    .isLength({ min: 5, max: 255 }).withMessage('Title must be between 5 and 255 characters'),
+  
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ min: 20 }).withMessage('Description must be at least 20 characters'),
+  
+  body('status')
+    .optional()
+    .isIn(['pending', 'assigned', 'ongoing', 'review', 'closed', 'rejected'])
+    .withMessage('Invalid status'),
+  
+  body('priority')
+    .optional()
+    .isIn(['low', 'medium', 'high', 'urgent'])
+    .withMessage('Invalid priority level'),
+  
+  body('caseType')
+    .optional()
+    .isIn(['civil', 'criminal', 'corporate', 'family', 'property', 'labor', 'other'])
+    .withMessage('Invalid case type'),
+  
+  validate
+];
+
+// Assign lawyer validation
+const assignLawyerValidation = [
+  body('lawyerId')
+    .optional()
+    .isInt().withMessage('Lawyer ID must be a number'),
+  
+  validate
+];
+
+// ===== MESSAGE VALIDATIONS =====
+
+// Send message validation
+const sendMessageValidation = [
+  body('receiverId')
+    .notEmpty().withMessage('Receiver ID is required')
+    .isInt().withMessage('Receiver ID must be a number'),
+  
+  body('message')
+    .trim()
+    .notEmpty().withMessage('Message is required')
+    .isLength({ min: 1, max: 5000 }).withMessage('Message must be between 1 and 5000 characters'),
+  
+  body('caseId')
+    .optional()
+    .isInt().withMessage('Case ID must be a number'),
+  
+  body('messageType')
+    .optional()
+    .isIn(['text', 'file', 'notification', 'system'])
+    .withMessage('Invalid message type'),
+  
+  body('attachmentUrl')
+    .optional()
+    .isURL().withMessage('Invalid attachment URL'),
+  
+  validate
+];
+
 module.exports = {
   validate,
   registerValidation,
@@ -149,5 +244,9 @@ module.exports = {
   forgotPasswordValidation,
   resetPasswordValidation,
   updateProfileValidation,
-  changePasswordValidation
+  changePasswordValidation,
+  createCaseValidation,
+  updateCaseValidation,
+  assignLawyerValidation,
+  sendMessageValidation
 };

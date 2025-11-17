@@ -127,32 +127,21 @@ app.get('/api/models', (req, res) => {
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
+const caseRoutes = require('./routes/caseRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+const chatRoutes = require('./routes/chatRoutes');
+const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 // Use routes
 app.use('/api/auth', authRoutes);
+app.use('/api/cases', caseRoutes);
 app.use('/api/ai', aiRoutes);
-// app.use('/api/messages', chatRoutes); // Will add next
-// app.use('/api/admin', adminRoutes);
+app.use('/api/messages', chatRoutes);
+// app.use('/api/admin', adminRoutes); // Will add next
 
-// 404 handler for unmatched routes
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Not Found - ${req.originalUrl}`
-  });
-});
-
-// Global error handler (must be last)
-app.use((err, req, res, next) => {
-  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
-  
-  res.status(statusCode).json({
-    success: false,
-    message: err.message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
-});
+// Error handlers (must be last)
+app.use(notFound);
+app.use(errorHandler);
 
 // Start server with database connection
 async function startServer() {

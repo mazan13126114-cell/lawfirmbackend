@@ -67,7 +67,7 @@ const sendAIMessage = async (message, chatId = null) => {
       success: true,
       message: messageStr,
       chatId: response.data.chatId || chatId || generateChatId(),
-      model: 'GPT-5',
+      model: 'GPT-4',
       timestamp: new Date()
     };
   } catch (error) {
