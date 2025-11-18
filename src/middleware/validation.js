@@ -38,7 +38,7 @@ const registerValidation = [
   
   body('role')
     .optional()
-    .isIn(['client', 'lawyer']).withMessage('Role must be either client or lawyer'),
+    .isIn(['client', 'lawyer', 'admin']).withMessage('Role must be one of: client, lawyer, or admin'),
   
   body('phone')
     .optional()
