@@ -2,9 +2,9 @@
 const express = require('express');
 const router = express.Router();
 
-// Placeholder routes for cases - implement detailed handlers in controllers/caseController.js
+// Cases endpoints not implemented yet. Return 501 to indicate not implemented.
 router.get('/', (req, res) => {
-  res.json({ success: true, message: 'Cases endpoint (placeholder)' });
+  res.status(501).json({ success: false, message: 'Cases endpoint not implemented' });
 });
 
 module.exports = router;

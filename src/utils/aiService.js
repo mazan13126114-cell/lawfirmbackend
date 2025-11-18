@@ -16,7 +16,7 @@ const generateChatId = () => {
  * @returns {string}
  */
 const getLegalDisclaimer = () => {
-  return "⚠️ **Legal Disclaimer**: This AI-generated response is for informational purposes only and does not constitute legal advice. Please consult with a licensed attorney for specific legal matters concerning your case.";
+  return "Legal Disclaimer: This AI-generated response is for informational purposes only and does not constitute legal advice. Please consult with a licensed attorney for specific legal matters concerning your case.";
 };
 
 /**

@@ -53,7 +53,7 @@ app.get('/health', async (req, res) => {
     res.json({
       status: 'OK',
       message: 'Server is running',
-      database: 'Connected ✅',
+      database: 'Connected',
       uptime: process.uptime(),
       timestamp: new Date().toISOString()
     });
@@ -61,7 +61,7 @@ app.get('/health', async (req, res) => {
     res.status(503).json({
       status: 'ERROR',
       message: 'Server is running but database is disconnected',
-      database: 'Disconnected ❌',
+      database: 'Disconnected',
       error: error.message,
       timestamp: new Date().toISOString()
     });
@@ -85,7 +85,7 @@ app.get('/api/db-status', async (req, res) => {
       dialect: db.sequelize.config.dialect,
       tablesCount: tables.length,
       tables: tables,
-      testQuery: `✅ Passed (Result: ${results[0].result})`,
+  testQuery: `Passed (Result: ${results[0].result})`,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -146,28 +146,33 @@ app.use(errorHandler);
 // Start server with database connection
 async function startServer() {
   try {
-    console.log('\n🚀 Starting LawConnect Backend Server...\n');
-    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Starting LawConnect backend server...');
+    }
+
     // Connect to database first
     await connectDB();
-    
-    console.log('\n📦 Loaded Models:');
-    const models = Object.keys(db).filter(key => key !== 'sequelize');
-    models.forEach(model => console.log(`   ✅ ${model}`));
-    
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Loaded models:');
+      const models = Object.keys(db).filter(key => key !== 'sequelize');
+      models.forEach(model => console.log(`  - ${model}`));
+    }
+
     // Start Express server
     app.listen(PORT, () => {
-      console.log(`\n✅ Server is running on port ${PORT}`);
-      console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`\n🔗 Available endpoints:`);
-      console.log(`   - http://localhost:${PORT}/`);
-      console.log(`   - http://localhost:${PORT}/health`);
-      console.log(`   - http://localhost:${PORT}/api/db-status`);
-      console.log(`   - http://localhost:${PORT}/api/models`);
-      console.log(`\n💡 Press Ctrl+C to stop the server\n`);
+      console.log(`Server is running on port ${PORT}`);
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+        console.log('Available endpoints:');
+        console.log(`  - http://localhost:${PORT}/`);
+        console.log(`  - http://localhost:${PORT}/health`);
+        console.log(`  - http://localhost:${PORT}/api/db-status`);
+        console.log(`  - http://localhost:${PORT}/api/models`);
+      }
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error.message);
+  console.error('Failed to start server:', error.message);
     process.exit(1);
   }
 }
@@ -177,10 +182,10 @@ process.on('SIGINT', async () => {
   console.log('\n\n🛑 Shutting down gracefully...');
   try {
     await db.sequelize.close();
-    console.log('✅ Database connection closed');
+  console.log('Database connection closed');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Error during shutdown:', error.message);
+  console.error('Error during shutdown:', error.message);
     process.exit(1);
   }
 });
