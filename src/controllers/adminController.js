@@ -1,6 +1,6 @@
 // src/controllers/adminController.js
-const { User, Case, Message, Document, AiLogs, sequelize } = require('../models');
-const { Op } = require('sequelize');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 // @desc    Get dashboard statistics
 // @route   GET /api/admin/dashboard
@@ -8,77 +8,73 @@ const { Op } = require('sequelize');
 const getDashboardStats = async (req, res, next) => {
   try {
     // Total counts
-    const totalUsers = await User.count();
-    const totalClients = await User.count({ where: { role: 'client' } });
-    const totalLawyers = await User.count({ where: { role: 'lawyer' } });
-    const totalCases = await Case.count();
-    const totalMessages = await Message.count();
-    const totalDocuments = await Document.count();
-    const totalAiQueries = await AiLogs.count();
+  const totalUsers = await prisma.user.count();
+  const totalClients = await prisma.user.count({ where: { role: 'client' } });
+  const totalLawyers = await prisma.user.count({ where: { role: 'lawyer' } });
+  const totalCases = await prisma.case.count();
+  const totalMessages = await prisma.message.count();
+  const totalDocuments = await prisma.document.count();
+  const totalAiQueries = await prisma.aiLog.count();
 
     // Active users (logged in last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const activeUsers = await User.count({
+    const activeUsers = await prisma.user.count({
       where: {
-        lastLogin: { [Op.gte]: thirtyDaysAgo }
+        lastLogin: { gte: thirtyDaysAgo }
       }
     });
 
     // Case status breakdown
-    const casesByStatus = await Case.findAll({
-      attributes: [
-        'status',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
-      ],
-      group: ['status']
+    const casesByStatusRaw = await prisma.case.groupBy({
+      by: ['status'],
+      _count: { id: true }
     });
+    const casesByStatus = casesByStatusRaw.map(row => ({ status: row.status, count: row._count.id }));
 
     // Cases by type
-    const casesByType = await Case.findAll({
-      attributes: [
-        'caseType',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
-      ],
-      group: ['caseType']
+    const casesByTypeRaw = await prisma.case.groupBy({
+      by: ['caseType'],
+      _count: { id: true }
     });
+    const casesByType = casesByTypeRaw.map(row => ({ caseType: row.caseType, count: row._count.id }));
 
     // Recent activity (last 7 days)
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const recentCases = await Case.count({
-      where: { createdAt: { [Op.gte]: sevenDaysAgo } }
+    const recentCases = await prisma.case.count({
+      where: { createdAt: { gte: sevenDaysAgo } }
     });
-    const recentMessages = await Message.count({
-      where: { createdAt: { [Op.gte]: sevenDaysAgo } }
+    const recentMessages = await prisma.message.count({
+      where: { createdAt: { gte: sevenDaysAgo } }
     });
-    const recentUsers = await User.count({
-      where: { createdAt: { [Op.gte]: sevenDaysAgo } }
+    const recentUsers = await prisma.user.count({
+      where: { createdAt: { gte: sevenDaysAgo } }
     });
 
     // Average case probability
-    const avgProbability = await Case.findOne({
-      attributes: [[sequelize.fn('AVG', sequelize.col('probability_score')), 'avgScore']]
+    const avgProbabilityRaw = await prisma.case.aggregate({
+      _avg: { probability_score: true }
     });
+    const avgProbability = avgProbabilityRaw._avg.probability_score;
 
     // Cases with lawyers vs without
-    const assignedCases = await Case.count({ where: { lawyerId: { [Op.ne]: null } } });
-    const unassignedCases = await Case.count({ where: { lawyerId: null } });
+  const assignedCases = await prisma.case.count({ where: { lawyerId: { not: null } } });
+  const unassignedCases = await prisma.case.count({ where: { lawyerId: null } });
 
     // Top lawyers by case count
-    const topLawyers = await Case.findAll({
-      attributes: [
-        'lawyerId',
-        [sequelize.fn('COUNT', sequelize.col('Case.id')), 'caseCount']
-      ],
-      where: { lawyerId: { [Op.ne]: null } },
-      group: ['lawyerId'],
-      order: [[sequelize.literal('caseCount'), 'DESC']],
-      limit: 5,
-      include: [{
-        model: User,
-        as: 'lawyer',
-        attributes: ['id', 'name', 'email', 'specialization']
-      }]
+    const topLawyersRaw = await prisma.case.groupBy({
+      by: ['lawyerId'],
+      where: { lawyerId: { not: null } },
+      _count: { id: true },
+      orderBy: { _count: { id: 'desc' } },
+      take: 5
     });
+    const topLawyers = await Promise.all(topLawyersRaw.map(async l => {
+      const lawyer = await prisma.user.findUnique({
+        where: { id: l.lawyerId },
+        select: { id: true, name: true, email: true, specialization: true }
+      });
+      return { lawyer, caseCount: l._count.id };
+    }));
 
     res.json({
       success: true,
@@ -106,10 +102,7 @@ const getDashboardStats = async (req, res, next) => {
           newMessages: recentMessages,
           newUsers: recentUsers
         },
-        topLawyers: topLawyers.map(l => ({
-          lawyer: l.lawyer,
-          caseCount: parseInt(l.dataValues.caseCount)
-        }))
+        topLawyers
       }
     });
   } catch (error) {
@@ -129,24 +122,26 @@ const getAllUsers = async (req, res, next) => {
     if (role) where.role = role;
     if (isActive !== undefined) where.isActive = isActive === 'true';
     if (search) {
-      where[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { email: { [Op.like]: `%${search}%` } }
+      where.OR = [
+        { name: { contains: search } },
+        { email: { contains: search } }
       ];
     }
-
-    const { count, rows } = await User.findAndCountAll({
-      where,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['createdAt', 'DESC']],
-      attributes: { exclude: ['password'] }
-    });
+    const [users, count] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        skip: parseInt(offset),
+        take: parseInt(limit),
+        orderBy: { createdAt: 'desc' },
+        select: { password: false }
+      }),
+      prisma.user.count({ where })
+    ]);
 
     res.json({
       success: true,
       data: {
-        users: rows,
+        users,
         pagination: {
           total: count,
           page: parseInt(page),
@@ -167,22 +162,29 @@ const getUserDetails = async (req, res, next) => {
   try {
     const userId = req.params.id;
 
-    const user = await User.findByPk(userId, {
-      attributes: { exclude: ['password'] },
-      include: [
-        { 
-          model: Case, 
-          as: 'clientCases',
-          limit: 5,
-          order: [['createdAt', 'DESC']]
-        },
-        { 
-          model: Case, 
-          as: 'lawyerCases',
-          limit: 5,
-          order: [['createdAt', 'DESC']]
-        }
-      ]
+    const user = await prisma.user.findUnique({
+      where: { id: parseInt(userId) },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        isVerified: true,
+        createdAt: true,
+        // Add more fields as needed
+      }
+    });
+    // Get clientCases and lawyerCases
+    const clientCases = await prisma.case.findMany({
+      where: { clientId: parseInt(userId) },
+      orderBy: { createdAt: 'desc' },
+      take: 5
+    });
+    const lawyerCases = await prisma.case.findMany({
+      where: { lawyerId: parseInt(userId) },
+      orderBy: { createdAt: 'desc' },
+      take: 5
     });
 
     if (!user) {
@@ -193,21 +195,21 @@ const getUserDetails = async (req, res, next) => {
     }
 
     // Get additional stats
-    const messagesSent = await Message.count({ where: { senderId: userId } });
-    const messagesReceived = await Message.count({ where: { receiverId: userId } });
-    const documentsUploaded = await Document.count({ where: { uploadedBy: userId } });
-    const aiQueriesCount = await AiLogs.count({ where: { userId } });
+  const messagesSent = await prisma.message.count({ where: { senderId: parseInt(userId) } });
+  const messagesReceived = await prisma.message.count({ where: { receiverId: parseInt(userId) } });
+  const documentsUploaded = await prisma.document.count({ where: { uploadedBy: parseInt(userId) } });
+  const aiQueriesCount = await prisma.aiLog.count({ where: { userId: parseInt(userId) } });
 
     res.json({
       success: true,
       data: {
-        user,
+        user: { ...user, clientCases, lawyerCases },
         stats: {
           messagesSent,
           messagesReceived,
           documentsUploaded,
           aiQueriesCount,
-          totalCases: user.role === 'client' ? user.clientCases.length : user.lawyerCases.length
+          totalCases: user.role === 'client' ? clientCases.length : lawyerCases.length
         }
       }
     });
@@ -224,7 +226,7 @@ const updateUser = async (req, res, next) => {
     const userId = req.params.id;
     const { isActive, role, isVerified } = req.body;
 
-    const user = await User.findByPk(userId);
+  const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -245,12 +247,15 @@ const updateUser = async (req, res, next) => {
     if (role) updateData.role = role;
     if (isVerified !== undefined) updateData.isVerified = isVerified;
 
-    await user.update(updateData);
+    const updatedUser = await prisma.user.update({
+      where: { id: parseInt(userId) },
+      data: updateData
+    });
 
     res.json({
       success: true,
       message: 'User updated successfully',
-      data: { user }
+  data: { user: updatedUser }
     });
   } catch (error) {
     next(error);
@@ -264,7 +269,7 @@ const deleteUser = async (req, res, next) => {
   try {
     const userId = req.params.id;
 
-    const user = await User.findByPk(userId);
+  const user = await prisma.user.findUnique({ where: { id: parseInt(userId) } });
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -280,7 +285,7 @@ const deleteUser = async (req, res, next) => {
       });
     }
 
-    await user.destroy();
+  await prisma.user.delete({ where: { id: parseInt(userId) } });
 
     res.json({
       success: true,
@@ -304,27 +309,29 @@ const getAllCasesAdmin = async (req, res, next) => {
     if (caseType) where.caseType = caseType;
     if (priority) where.priority = priority;
     if (search) {
-      where[Op.or] = [
-        { title: { [Op.like]: `%${search}%` } },
-        { caseNumber: { [Op.like]: `%${search}%` } }
+      where.OR = [
+        { title: { contains: search } },
+        { caseNumber: { contains: search } }
       ];
     }
-
-    const { count, rows } = await Case.findAndCountAll({
-      where,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['createdAt', 'DESC']],
-      include: [
-        { model: User, as: 'client', attributes: ['id', 'name', 'email'] },
-        { model: User, as: 'lawyer', attributes: ['id', 'name', 'email'] }
-      ]
-    });
+    const [cases, count] = await Promise.all([
+      prisma.case.findMany({
+        where,
+        skip: parseInt(offset),
+        take: parseInt(limit),
+        orderBy: { createdAt: 'desc' },
+        include: {
+          client: { select: { id: true, name: true, email: true } },
+          lawyer: { select: { id: true, name: true, email: true } }
+        }
+      }),
+      prisma.case.count({ where })
+    ]);
 
     res.json({
       success: true,
       data: {
-        cases: rows,
+        cases,
         pagination: {
           total: count,
           page: parseInt(page),
@@ -346,7 +353,7 @@ const assignLawyerToCase = async (req, res, next) => {
     const caseId = req.params.id;
     const { lawyerId } = req.body;
 
-    const caseData = await Case.findByPk(caseId);
+  const caseData = await prisma.case.findUnique({ where: { id: parseInt(caseId) } });
     if (!caseData) {
       return res.status(404).json({
         success: false,
@@ -355,9 +362,7 @@ const assignLawyerToCase = async (req, res, next) => {
     }
 
     // Verify lawyer exists
-    const lawyer = await User.findOne({
-      where: { id: lawyerId, role: 'lawyer' }
-    });
+    const lawyer = await prisma.user.findFirst({ where: { id: lawyerId, role: 'lawyer' } });
 
     if (!lawyer) {
       return res.status(404).json({
@@ -366,16 +371,17 @@ const assignLawyerToCase = async (req, res, next) => {
       });
     }
 
-    await caseData.update({
-      lawyerId,
-      status: 'assigned'
+    await prisma.case.update({
+      where: { id: parseInt(caseId) },
+      data: { lawyerId, status: 'assigned' }
     });
 
-    const updatedCase = await Case.findByPk(caseId, {
-      include: [
-        { model: User, as: 'client', attributes: ['id', 'name', 'email'] },
-        { model: User, as: 'lawyer', attributes: ['id', 'name', 'email'] }
-      ]
+    const updatedCase = await prisma.case.findUnique({
+      where: { id: parseInt(caseId) },
+      include: {
+        client: { select: { id: true, name: true, email: true } },
+        lawyer: { select: { id: true, name: true, email: true } }
+      }
     });
 
     res.json({
@@ -395,7 +401,7 @@ const deleteCaseAdmin = async (req, res, next) => {
   try {
     const caseId = req.params.id;
 
-    const caseData = await Case.findByPk(caseId);
+  const caseData = await prisma.case.findUnique({ where: { id: parseInt(caseId) } });
     if (!caseData) {
       return res.status(404).json({
         success: false,
@@ -403,7 +409,7 @@ const deleteCaseAdmin = async (req, res, next) => {
       });
     }
 
-    await caseData.destroy();
+  await prisma.case.delete({ where: { id: parseInt(caseId) } });
 
     res.json({
       success: true,
@@ -419,50 +425,46 @@ const deleteCaseAdmin = async (req, res, next) => {
 // @access  Private (Admin only)
 const getAIStats = async (req, res, next) => {
   try {
-    const totalQueries = await AiLogs.count();
-    const successfulQueries = await AiLogs.count({ where: { status: 'success' } });
-    const failedQueries = await AiLogs.count({ where: { status: 'error' } });
+  const totalQueries = await prisma.aiLog.count();
+  const successfulQueries = await prisma.aiLog.count({ where: { status: 'success' } });
+  const failedQueries = await prisma.aiLog.count({ where: { status: 'error' } });
 
     // Queries by type
-    const queriesByType = await AiLogs.findAll({
-      attributes: [
-        'queryType',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
-      ],
-      group: ['queryType']
+    const queriesByTypeRaw = await prisma.aiLog.groupBy({
+      by: ['queryType'],
+      _count: { id: true }
     });
+    const queriesByType = queriesByTypeRaw.map(row => ({ queryType: row.queryType, count: row._count.id }));
 
     // Average response time
-    const avgResponseTime = await AiLogs.findOne({
-      attributes: [[sequelize.fn('AVG', sequelize.col('response_time')), 'avgTime']]
+    const avgResponseTimeRaw = await prisma.aiLog.aggregate({
+      _avg: { responseTime: true }
     });
+    const avgResponseTime = avgResponseTimeRaw._avg.responseTime;
 
     // Top users by AI usage
-    const topAiUsers = await AiLogs.findAll({
-      attributes: [
-        'userId',
-        [sequelize.fn('COUNT', sequelize.col('AiLog.id')), 'queryCount']
-      ],
-      group: ['userId'],
-      order: [[sequelize.literal('queryCount'), 'DESC']],
-      limit: 10,
-      include: [{
-        model: User,
-        as: 'user',
-        attributes: ['id', 'name', 'email', 'role']
-      }]
+    const topAiUsersRaw = await prisma.aiLog.groupBy({
+      by: ['userId'],
+      _count: { id: true },
+      orderBy: { _count: { id: 'desc' } },
+      take: 10
     });
+    const topAiUsers = await Promise.all(topAiUsersRaw.map(async u => {
+      const user = await prisma.user.findUnique({
+        where: { id: u.userId },
+        select: { id: true, name: true, email: true, role: true }
+      });
+      return { user, queryCount: u._count.id };
+    }));
 
     // Recent AI queries
-    const recentQueries = await AiLogs.findAll({
-      limit: 10,
-      order: [['createdAt', 'DESC']],
-      include: [{
-        model: User,
-        as: 'user',
-        attributes: ['id', 'name', 'role']
-      }],
-      attributes: ['id', 'queryType', 'prompt', 'status', 'createdAt', 'responseTime']
+    const recentQueries = await prisma.aiLog.findMany({
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: { select: { id: true, name: true, role: true } }
+      },
+      select: { id: true, queryType: true, prompt: true, status: true, createdAt: true, responseTime: true, user: true }
     });
 
     res.json({
@@ -473,7 +475,7 @@ const getAIStats = async (req, res, next) => {
           successfulQueries,
           failedQueries,
           successRate: totalQueries > 0 ? ((successfulQueries / totalQueries) * 100).toFixed(2) : 0,
-          avgResponseTime: parseInt(avgResponseTime?.dataValues?.avgTime || 0)
+          avgResponseTime: parseInt(avgResponseTime || 0)
         },
         queriesByType,
         topUsers: topAiUsers.map(u => ({
@@ -496,31 +498,31 @@ const getActivityLogs = async (req, res, next) => {
     const { limit = 50 } = req.query;
 
     // Get recent users
-    const recentUsers = await User.findAll({
-      limit: 10,
-      order: [['createdAt', 'DESC']],
-      attributes: ['id', 'name', 'email', 'role', 'createdAt']
+    const recentUsers = await prisma.user.findMany({
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, name: true, email: true, role: true, createdAt: true }
     });
 
     // Get recent cases
-    const recentCases = await Case.findAll({
-      limit: 10,
-      order: [['createdAt', 'DESC']],
-      include: [
-        { model: User, as: 'client', attributes: ['id', 'name'] }
-      ],
-      attributes: ['id', 'title', 'caseNumber', 'status', 'createdAt']
+    const recentCases = await prisma.case.findMany({
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        client: { select: { id: true, name: true } }
+      },
+      select: { id: true, title: true, caseNumber: true, status: true, createdAt: true, client: true }
     });
 
     // Get recent messages
-    const recentMessages = await Message.findAll({
-      limit: parseInt(limit),
-      order: [['createdAt', 'DESC']],
-      include: [
-        { model: User, as: 'sender', attributes: ['id', 'name', 'role'] },
-        { model: User, as: 'receiver', attributes: ['id', 'name', 'role'] }
-      ],
-      attributes: ['id', 'message', 'messageType', 'createdAt']
+    const recentMessages = await prisma.message.findMany({
+      take: parseInt(limit),
+      orderBy: { createdAt: 'desc' },
+      include: {
+        sender: { select: { id: true, name: true, role: true } },
+        receiver: { select: { id: true, name: true, role: true } }
+      },
+      select: { id: true, message: true, messageType: true, createdAt: true, sender: true, receiver: true }
     });
 
     res.json({

@@ -1,5 +1,5 @@
 // src/controllers/aiController.js
-const { AiLogs, Case } = require('../models');
+const { prisma } = require('@prisma/client');
 const {
   sendAIMessage,
   getLegalAdvice,
@@ -85,7 +85,7 @@ const getAILegalAdvice = async (req, res, next) => {
 
     let caseData = null;
     if (safeCaseId > 0) {
-      caseData = await Case.findByPk(safeCaseId);
+      caseData = await prisma.case.findUnique({ where: { id: safeCaseId } });
       if (!caseData) return res.status(404).json({ success: false, message: 'Case not found' });
 
       if (
@@ -106,15 +106,17 @@ const getAILegalAdvice = async (req, res, next) => {
       });
     }
 
-    await AiLogs.create({
-      userId,
-      caseId: safeCaseId,
-      queryType: 'legal_research',
-      prompt: ensureString(query),
-      response: ensureString(aiResponse),
-      model: 'GPT-5',
-      status: 'success',
-      metadata: { chatId: aiResponse.chatId }
+    await prisma.aiLog.create({
+      data: {
+        userId,
+        caseId: safeCaseId,
+        queryType: 'legal_research',
+        prompt: ensureString(query),
+        response: ensureString(aiResponse),
+        model: 'GPT-5',
+        status: 'success',
+        metadata: { chatId: aiResponse.chatId }
+      }
     });
 
     res.json({
@@ -174,22 +176,27 @@ const predictCaseSuccess = async (req, res, next) => {
     }
 
     if (caseId) {
-      await Case.update({ probabilityScore: analysis.probability }, { where: { id: caseId } });
+      await prisma.case.update({
+        where: { id: caseId },
+        data: { probabilityScore: analysis.probability }
+      });
     }
 
-    await AiLogs.create({
-      userId,
-      caseId: caseId || null,
-      queryType: 'case_prediction',
-      prompt: ensureString(caseDetails),
-      response: ensureString(analysis),
-      model: 'GPT-5',
-      confidence: analysis.probability,
-      responseTime: duration,
-      status: 'success',
-      metadata: {
-        chatId: analysis.chatId,
-        probability: analysis.probability
+    await prisma.aiLog.create({
+      data: {
+        userId,
+        caseId: caseId || null,
+        queryType: 'case_prediction',
+        prompt: ensureString(caseDetails),
+        response: ensureString(analysis),
+        model: 'GPT-5',
+        confidence: analysis.probability,
+        responseTime: duration,
+        status: 'success',
+        metadata: {
+          chatId: analysis.chatId,
+          probability: analysis.probability
+        }
       }
     });
 
@@ -218,11 +225,19 @@ const getAIHistory = async (req, res, next) => {
     if (caseId) where.caseId = Number(caseId);
     if (queryType) where.queryType = queryType;
 
-    const history = await AiLogs.findAll({
+    const history = await prisma.aiLog.findMany({
       where,
-      limit: parseInt(limit),
-      order: [['createdAt', 'DESC']],
-      attributes: ['id', 'queryType', 'prompt', 'response', 'confidence', 'createdAt', 'metadata']
+      take: parseInt(limit),
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        queryType: true,
+        prompt: true,
+        response: true,
+        confidence: true,
+        createdAt: true,
+        metadata: true
+      }
     });
 
     res.json({
@@ -245,7 +260,7 @@ const analyzeDocumentAI = async (req, res, next) => {
     }
 
     if (caseId) {
-      const caseData = await Case.findByPk(caseId);
+      const caseData = await prisma.case.findUnique({ where: { id: caseId } });
       if (!caseData) return res.status(404).json({ success: false, message: 'Case not found' });
 
       if (req.user.role === 'client' && caseData.clientId !== userId)
@@ -262,15 +277,17 @@ const analyzeDocumentAI = async (req, res, next) => {
       });
     }
 
-    await AiLogs.create({
-      userId,
-      caseId: caseId || null,
-      queryType: 'document_analysis',
-      prompt: ensureString(documentSummary),
-      response: ensureString(analysis),
-      model: 'GPT-5',
-      status: 'success',
-      metadata: { chatId: analysis.chatId }
+    await prisma.aiLog.create({
+      data: {
+        userId,
+        caseId: caseId || null,
+        queryType: 'document_analysis',
+        prompt: ensureString(documentSummary),
+        response: ensureString(analysis),
+        model: 'GPT-5',
+        status: 'success',
+        metadata: { chatId: analysis.chatId }
+      }
     });
 
     res.json({

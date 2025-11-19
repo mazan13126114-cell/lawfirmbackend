@@ -1,6 +1,7 @@
-// src/middleware/auth.js
+// src/middleware/auth.js (Prisma Version)
 const { verifyToken } = require('../utils/jwt');
-const { User } = require('../models');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 // Protect routes - verify JWT token
 const protect = async (req, res, next) => {
@@ -24,8 +25,16 @@ const protect = async (req, res, next) => {
     const decoded = verifyToken(token);
 
     // Get user from database
-    const user = await User.findByPk(decoded.id, {
-      attributes: { exclude: ['password'] }
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        isVerified: true
+      }
     });
 
     if (!user) {
@@ -86,10 +95,17 @@ const optionalAuth = async (req, res, next) => {
 
     if (token) {
       const decoded = verifyToken(token);
-      const user = await User.findByPk(decoded.id, {
-        attributes: { exclude: ['password'] }
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isActive: true
+        }
       });
-      
+
       if (user && user.isActive) {
         req.user = user;
       }

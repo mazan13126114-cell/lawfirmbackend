@@ -1,6 +1,5 @@
 // src/controllers/chatController.js
-const { Message, User, Case } = require('../models');
-const { Op } = require('sequelize');
+const { prisma } = require('@prisma/client');
 
 // @desc    Send a message
 // @route   POST /api/messages
@@ -11,7 +10,7 @@ const sendMessage = async (req, res, next) => {
     const senderId = req.user.id;
 
     // Validate receiver exists
-    const receiver = await User.findByPk(receiverId);
+  const receiver = await prisma.user.findUnique({ where: { id: receiverId } });
     if (!receiver) {
       return res.status(404).json({
         success: false,
@@ -21,7 +20,7 @@ const sendMessage = async (req, res, next) => {
 
     // If caseId provided, verify access
     if (caseId) {
-      const caseData = await Case.findByPk(caseId);
+      const caseData = await prisma.case.findUnique({ where: { id: caseId } });
       if (!caseData) {
         return res.status(404).json({
           success: false,
@@ -57,22 +56,24 @@ const sendMessage = async (req, res, next) => {
     }
 
     // Create message
-    const newMessage = await Message.create({
-      senderId,
-      receiverId,
-      caseId: caseId || null,
-      message,
-      messageType: messageType || 'text',
-      attachmentUrl: attachmentUrl || null
+    const newMessage = await prisma.message.create({
+      data: {
+        senderId,
+        receiverId,
+        caseId: caseId || null,
+        message,
+        messageType: messageType || 'text',
+        attachmentUrl: attachmentUrl || null
+      }
     });
-
-    // Include sender and receiver info
-    const messageWithDetails = await Message.findByPk(newMessage.id, {
-      include: [
-        { model: User, as: 'sender', attributes: ['id', 'name', 'email', 'role'] },
-        { model: User, as: 'receiver', attributes: ['id', 'name', 'email', 'role'] },
-        { model: Case, as: 'case', attributes: ['id', 'title', 'caseNumber'] }
-      ]
+    // Fetch sender/receiver/case details
+    const messageWithDetails = await prisma.message.findUnique({
+      where: { id: newMessage.id },
+      include: {
+        sender: true,
+        receiver: true,
+        case: true
+      }
     });
 
     // TODO: Emit socket event for real-time notification
@@ -97,39 +98,32 @@ const getConversation = async (req, res, next) => {
     const otherUserId = parseInt(req.params.userId);
     const { caseId, limit = 50, offset = 0 } = req.query;
 
-    const where = {
-      [Op.or]: [
-        { senderId: currentUserId, receiverId: otherUserId },
-        { senderId: otherUserId, receiverId: currentUserId }
-      ]
-    };
-
-    if (caseId) {
-      where.caseId = caseId;
-    }
-
-    const messages = await Message.findAll({
-      where,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['createdAt', 'ASC']],
-      include: [
-        { model: User, as: 'sender', attributes: ['id', 'name', 'profilePicture'] },
-        { model: User, as: 'receiver', attributes: ['id', 'name', 'profilePicture'] }
-      ]
+    const messages = await prisma.message.findMany({
+      where: {
+        OR: [
+          { senderId: currentUserId, receiverId: otherUserId },
+          { senderId: otherUserId, receiverId: currentUserId }
+        ],
+        ...(caseId ? { caseId: Number(caseId) } : {})
+      },
+      take: parseInt(limit),
+      skip: parseInt(offset),
+      orderBy: { createdAt: 'asc' },
+      include: {
+        sender: true,
+        receiver: true
+      }
     });
 
     // Mark messages as read
-    await Message.update(
-      { isRead: true, readAt: new Date() },
-      {
-        where: {
-          receiverId: currentUserId,
-          senderId: otherUserId,
-          isRead: false
-        }
-      }
-    );
+    await prisma.message.updateMany({
+      where: {
+        receiverId: currentUserId,
+        senderId: otherUserId,
+        isRead: false
+      },
+      data: { isRead: true, readAt: new Date() }
+    });
 
     res.json({
       success: true,
@@ -236,7 +230,7 @@ const getCaseMessages = async (req, res, next) => {
     const { limit = 50, offset = 0 } = req.query;
 
     // Verify case access
-    const caseData = await Case.findByPk(caseId);
+  const caseData = await prisma.case.findUnique({ where: { id: Number(caseId) } });
     if (!caseData) {
       return res.status(404).json({
         success: false,
@@ -257,28 +251,26 @@ const getCaseMessages = async (req, res, next) => {
       });
     }
 
-    const messages = await Message.findAll({
-      where: { caseId },
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['createdAt', 'ASC']],
-      include: [
-        { model: User, as: 'sender', attributes: ['id', 'name', 'profilePicture', 'role'] },
-        { model: User, as: 'receiver', attributes: ['id', 'name', 'profilePicture', 'role'] }
-      ]
+    const messages = await prisma.message.findMany({
+      where: { caseId: Number(caseId) },
+      take: parseInt(limit),
+      skip: parseInt(offset),
+      orderBy: { createdAt: 'asc' },
+      include: {
+        sender: true,
+        receiver: true
+      }
     });
 
     // Mark messages as read for current user
-    await Message.update(
-      { isRead: true, readAt: new Date() },
-      {
-        where: {
-          caseId,
-          receiverId: userId,
-          isRead: false
-        }
-      }
-    );
+    await prisma.message.updateMany({
+      where: {
+        caseId: Number(caseId),
+        receiverId: userId,
+        isRead: false
+      },
+      data: { isRead: true, readAt: new Date() }
+    });
 
     res.json({
       success: true,
@@ -300,7 +292,7 @@ const markAsRead = async (req, res, next) => {
     const messageId = req.params.id;
     const userId = req.user.id;
 
-    const message = await Message.findByPk(messageId);
+  const message = await prisma.message.findUnique({ where: { id: Number(messageId) } });
     if (!message) {
       return res.status(404).json({
         success: false,
@@ -316,9 +308,9 @@ const markAsRead = async (req, res, next) => {
       });
     }
 
-    await message.update({
-      isRead: true,
-      readAt: new Date()
+    await prisma.message.update({
+      where: { id: Number(messageId) },
+      data: { isRead: true, readAt: new Date() }
     });
 
     res.json({
@@ -338,7 +330,7 @@ const deleteMessage = async (req, res, next) => {
     const messageId = req.params.id;
     const userId = req.user.id;
 
-    const message = await Message.findByPk(messageId);
+  const message = await prisma.message.findUnique({ where: { id: Number(messageId) } });
     if (!message) {
       return res.status(404).json({
         success: false,
@@ -354,9 +346,9 @@ const deleteMessage = async (req, res, next) => {
       });
     }
 
-    await message.update({
-      isDeleted: true,
-      deletedBy: userId
+    await prisma.message.update({
+      where: { id: Number(messageId) },
+      data: { isDeleted: true, deletedBy: userId }
     });
 
     res.json({
@@ -375,7 +367,7 @@ const getUnreadCount = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    const unreadCount = await Message.count({
+    const unreadCount = await prisma.message.count({
       where: {
         receiverId: userId,
         isRead: false

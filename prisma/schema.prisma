@@ -1,0 +1,252 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"  
+  url      = "mysql://root:root@localhost:3306/lawfirm"
+}
+
+// Enums
+enum UserRole {
+  client
+  lawyer
+  admin
+}
+
+enum CaseType {
+  civil
+  criminal
+  corporate
+  family
+  property
+  labor
+  other
+}
+
+enum CaseStatus {
+  pending
+  assigned
+  ongoing
+  review
+  closed
+  rejected
+}
+
+enum CasePriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum CaseOutcome {
+  won
+  lost
+  settled
+  dismissed
+  pending
+}
+
+enum MessageType {
+  text
+  file
+  notification
+  system
+}
+
+enum DocumentType {
+  evidence
+  contract
+  statement
+  court_order
+  identification
+  other
+}
+
+enum QueryType {
+  chatbot
+  case_prediction
+  document_analysis
+  legal_research
+}
+
+enum AiStatus {
+  success
+  error
+  timeout
+}
+
+// Models
+model User {
+  id               Int      @id @default(autoincrement())
+  name             String   @db.VarChar(100)
+  email            String   @unique @db.VarChar(255)
+  password         String?  @db.VarChar(255)
+  role             UserRole @default(client)
+  phone            String?  @db.VarChar(20)
+  address          String?  @db.Text
+  specialization   String?  @db.VarChar(255)
+  licenseNumber    String?  @db.VarChar(100)
+  experience       Int?
+  profilePicture   String?  @db.VarChar(255)
+  googleId         String?  @unique @db.VarChar(255)
+  facebookId       String?  @unique @db.VarChar(255)
+  isActive         Boolean  @default(true)
+  isVerified       Boolean  @default(false)
+  lastLogin        DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  clientCases      Case[]          @relation("ClientCases")
+  lawyerCases      Case[]          @relation("LawyerCases")
+  sentMessages     Message[]       @relation("SentMessages")
+  receivedMessages Message[]       @relation("ReceivedMessages")
+  uploadedDocs     Document[]      @relation("UploadedDocuments")
+  verifiedDocs     Document[]      @relation("VerifiedDocuments")
+  aiLogs           AiLog[]
+  passwordResets   PasswordReset[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model Case {
+  id                 Int           @id @default(autoincrement())
+  clientId           Int
+  lawyerId           Int?
+  caseNumber         String        @unique @db.VarChar(50)
+  title              String        @db.VarChar(255)
+  description        String        @db.Text
+  caseType           CaseType
+  status             CaseStatus    @default(pending)
+  priority           CasePriority  @default(medium)
+  probabilityScore   Decimal?      @db.Decimal(5, 2)
+  estimatedDuration  Int?
+  actualDuration     Int?
+  filingDate         DateTime?
+  closingDate        DateTime?
+  courtName          String?       @db.VarChar(255)
+  caseOutcome        CaseOutcome   @default(pending)
+  notes              String?       @db.Text
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  // Relations
+  client    User       @relation("ClientCases", fields: [clientId], references: [id], onDelete: Cascade)
+  lawyer    User?      @relation("LawyerCases", fields: [lawyerId], references: [id], onDelete: SetNull)
+  messages  Message[]
+  documents Document[]
+  aiLogs    AiLog[]
+
+  @@index([clientId])
+  @@index([lawyerId])
+  @@index([status])
+  @@index([caseType])
+  @@map("cases")
+}
+
+model Message {
+  id            Int          @id @default(autoincrement())
+  senderId      Int
+  receiverId    Int
+  caseId        Int?
+  message       String       @db.Text
+  messageType   MessageType  @default(text)
+  attachmentUrl String?      @db.VarChar(500)
+  isRead        Boolean      @default(false)
+  readAt        DateTime?
+  isDeleted     Boolean      @default(false)
+  deletedBy     Int?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  // Relations
+  sender   User  @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User  @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  case     Case? @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([caseId])
+  @@index([isRead])
+  @@map("messages")
+}
+
+model Document {
+  id           Int           @id @default(autoincrement())
+  caseId       Int
+  uploadedBy   Int
+  filename     String        @db.VarChar(255)
+  originalName String        @db.VarChar(255)
+  filePath     String        @db.VarChar(500)
+  fileSize     Int
+  mimeType     String        @db.VarChar(100)
+  documentType DocumentType
+  description  String?       @db.Text
+  isVerified   Boolean       @default(false)
+  verifiedBy   Int?
+  verifiedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Relations
+  case     Case  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  uploader User  @relation("UploadedDocuments", fields: [uploadedBy], references: [id], onDelete: Cascade)
+  verifier User? @relation("VerifiedDocuments", fields: [verifiedBy], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([uploadedBy])
+  @@map("documents")
+}
+
+model AiLog {
+  id           Int        @id @default(autoincrement())
+  userId       Int
+  caseId       Int?
+  queryType    QueryType
+  prompt       String     @db.Text
+  response     String     @db.Text
+  model        String?    @default("gpt-5") @db.VarChar(100)
+  tokensUsed   Int?
+  responseTime Int?
+  confidence   Decimal?   @db.Decimal(5, 2)
+  status       AiStatus   @default(success)
+  errorMessage String?    @db.Text
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Relations
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  case Case? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([caseId])
+  @@index([queryType])
+  @@map("ai_logs")
+}
+
+model PasswordReset {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  token     String    @unique @db.VarChar(255)
+  expiresAt DateTime
+  isUsed    Boolean   @default(false)
+  usedAt    DateTime?
+  ipAddress String?   @db.VarChar(45)
+  userAgent String?   @db.VarChar(255)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("password_resets")
+}
