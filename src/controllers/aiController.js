@@ -1,5 +1,6 @@
 // src/controllers/aiController.js
-const { prisma } = require('@prisma/client');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 const {
   sendAIMessage,
   getLegalAdvice,
@@ -39,17 +40,19 @@ const chatWithAI = async (req, res, next) => {
       });
     }
 
-    // Log the interaction (ensure response is string)
+    // Log the interaction
     const responseStr = typeof aiResponse.message === 'string' ? aiResponse.message : JSON.stringify(aiResponse.message);
-    await AiLogs.create({
-      userId,
-      queryType: 'chatbot',
-      prompt: ensureString(message),
-      response: responseStr,
-      model: 'GPT-5',
-      status: 'success',
-      metadata: {
-        chatId: aiResponse.chatId
+    await prisma.aiLog.create({
+      data: {
+        userId,
+        queryType: 'chatbot',
+        prompt: ensureString(message),
+        response: responseStr,
+        model: 'GPT-5',
+        status: 'success',
+        metadata: {
+          chatId: aiResponse.chatId
+        }
       }
     });
 
@@ -109,10 +112,10 @@ const getAILegalAdvice = async (req, res, next) => {
     await prisma.aiLog.create({
       data: {
         userId,
-        caseId: safeCaseId,
+        caseId: safeCaseId || null,
         queryType: 'legal_research',
         prompt: ensureString(query),
-        response: ensureString(aiResponse),
+        response: ensureString(aiResponse.message),
         model: 'GPT-5',
         status: 'success',
         metadata: { chatId: aiResponse.chatId }
@@ -141,7 +144,7 @@ const predictCaseSuccess = async (req, res, next) => {
     let caseDetails;
 
     if (caseId) {
-      const existingCase = await Case.findByPk(caseId);
+      const existingCase = await prisma.case.findUnique({ where: { id: caseId } });
       if (!existingCase) return res.status(404).json({ success: false, message: 'Case not found' });
 
       if (

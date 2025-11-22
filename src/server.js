@@ -3,21 +3,12 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { connectDB, disconnectDB, prisma } = require('./config/prisma');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-// starting the server which keeps listening on the specified PORT
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
 
-// cors is used to allow cross-origin requests means
-// requests coming from different domains (like frontend app)
-// to access this backend API
-// Helmet helps secure Express apps by setting various HTTP headers
-// Body parser middleware to handle JSON and URL-encoded data
+// Middleware
 app.use(helmet());
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
@@ -41,6 +32,7 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     status: 'running',
     endpoints: {
+      health: '/health',
       auth: '/api/auth',
       cases: '/api/cases',
       messages: '/api/messages',
@@ -50,7 +42,23 @@ app.get('/', (req, res) => {
   });
 });
 
-
+// Health check
+app.get('/health', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({
+      status: 'OK',
+      database: 'Connected ✅',
+      uptime: process.uptime()
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'ERROR',
+      database: 'Disconnected ❌',
+      error: error.message
+    });
+  }
+});
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -59,7 +67,6 @@ const aiRoutes = require('./routes/aiRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
-const { Server } = require('socket.io');
 
 // Use routes
 app.use('/api/auth', authRoutes);
@@ -68,12 +75,43 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/messages', chatRoutes);
 app.use('/api/admin', adminRoutes);
 
-// Error handlers 
+// Error handlers
 app.use(notFound);
 app.use(errorHandler);
 
+// Start server
+async function startServer() {
+  try {
+    console.log('\n🚀 Starting LawConnect Backend Server...\n');
+    
+    await connectDB();
+    
+    app.listen(PORT, () => {
+      console.log(`\n✅ Server is running on port ${PORT}`);
+      console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`\n🔗 Available endpoints:`);
+      console.log(`   - http://localhost:${PORT}/`);
+      console.log(`   - http://localhost:${PORT}/health`);
+      console.log(`\n💡 Press Ctrl+C to stop the server\n`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error.message);
+    process.exit(1);
+  }
+}
 
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\n\n🛑 Shutting down gracefully...');
+  try {
+    await disconnectDB();
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error.message);
+    process.exit(1);
+  }
+});
 
+startServer();
 
-
-module.exports = { app };
+module.exports = app;

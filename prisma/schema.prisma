@@ -5,9 +5,10 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"  
-  url      = "mysql://root:root@localhost:3306/lawfirm"
+  provider = "mysql"
+  url      = env("DATABASE_URL")
 }
+
 
 // Enums
 enum UserRole {
