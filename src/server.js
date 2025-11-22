@@ -33,6 +33,8 @@ app.get('/', (req, res) => {
     status: 'running',
     endpoints: {
       health: '/health',
+      dbStatus: '/api/db-status',
+      models: '/api/models',
       auth: '/api/auth',
       cases: '/api/cases',
       messages: '/api/messages',
@@ -42,22 +44,84 @@ app.get('/', (req, res) => {
   });
 });
 
-// Health check
+// Health check endpoint
 app.get('/health', async (req, res) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await db.sequelize.authenticate();
+    
     res.json({
       status: 'OK',
+      message: 'Server is running',
       database: 'Connected ✅',
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     res.status(503).json({
       status: 'ERROR',
+      message: 'Server is running but database is disconnected',
       database: 'Disconnected ❌',
-      error: error.message
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
+});
+
+// Database status endpoint (detailed)
+app.get('/api/db-status', async (req, res) => {
+  try {
+    await db.sequelize.authenticate();
+    
+    const dbName = db.sequelize.config.database;
+    const tables = await db.sequelize.getQueryInterface().showAllTables();
+    
+    const [results] = await db.sequelize.query('SELECT 1 + 1 AS result');
+    
+    res.json({
+      status: 'connected',
+      database: dbName,
+      host: db.sequelize.config.host,
+      dialect: db.sequelize.config.dialect,
+      tablesCount: tables.length,
+      tables: tables,
+      testQuery: `✅ Passed (Result: ${results[0].result})`,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message,
+      type: error.name,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Models info endpoint
+app.get('/api/models', (req, res) => {
+  const models = Object.keys(db).filter(key => key !== 'sequelize');
+  
+  const modelsInfo = models.map(modelName => {
+    const model = db[modelName];
+    const attributes = model.rawAttributes;
+    const attributeNames = Object.keys(attributes).map(attr => ({
+      name: attr,
+      type: attributes[attr].type.key,
+      allowNull: attributes[attr].allowNull !== false
+    }));
+    
+    return {
+      name: modelName,
+      tableName: model.tableName,
+      attributesCount: attributeNames.length,
+      attributes: attributeNames
+    };
+  });
+  
+  res.json({
+    totalModels: models.length,
+    models: modelsInfo
+  });
 });
 
 // Import routes
@@ -66,7 +130,11 @@ const caseRoutes = require('./routes/caseRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const documentRoutes = require('./routes/documentRoutes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
+
+// Serve uploaded files statically
+app.use('/uploads', express.static('uploads'));
 
 // Use routes
 app.use('/api/auth', authRoutes);
@@ -74,24 +142,30 @@ app.use('/api/cases', caseRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/messages', chatRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/documents', documentRoutes);
 
-// Error handlers
+// Error handlers (must be last)
 app.use(notFound);
 app.use(errorHandler);
 
-// Start server
+// Start server with database connection
 async function startServer() {
   try {
     console.log('\n🚀 Starting LawConnect Backend Server...\n');
     
+    // Connect to database first
     await connectDB();
     
+    console.log('\n📦 Using Prisma ORM with type-safe queries!');
+    
+    // Start Express server
     app.listen(PORT, () => {
       console.log(`\n✅ Server is running on port ${PORT}`);
       console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`\n🔗 Available endpoints:`);
       console.log(`   - http://localhost:${PORT}/`);
       console.log(`   - http://localhost:${PORT}/health`);
+     
       console.log(`\n💡 Press Ctrl+C to stop the server\n`);
     });
   } catch (error) {
@@ -112,6 +186,7 @@ process.on('SIGINT', async () => {
   }
 });
 
+// Start the server
 startServer();
 
 module.exports = app;

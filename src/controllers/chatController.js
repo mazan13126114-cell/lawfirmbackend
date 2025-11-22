@@ -1,5 +1,5 @@
-// src/controllers/chatController.js
-const { prisma } = require('@prisma/client');
+// src/controllers/chatController.js (Prisma Version)
+const { prisma } = require('../config/prisma');
 
 // @desc    Send a message
 // @route   POST /api/messages
@@ -10,7 +10,10 @@ const sendMessage = async (req, res, next) => {
     const senderId = req.user.id;
 
     // Validate receiver exists
-  const receiver = await prisma.user.findUnique({ where: { id: receiverId } });
+    const receiver = await prisma.user.findUnique({
+      where: { id: receiverId }
+    });
+
     if (!receiver) {
       return res.status(404).json({
         success: false,
@@ -20,7 +23,10 @@ const sendMessage = async (req, res, next) => {
 
     // If caseId provided, verify access
     if (caseId) {
-      const caseData = await prisma.case.findUnique({ where: { id: caseId } });
+      const caseData = await prisma.case.findUnique({
+        where: { id: caseId }
+      });
+
       if (!caseData) {
         return res.status(404).json({
           success: false,
@@ -64,25 +70,24 @@ const sendMessage = async (req, res, next) => {
         message,
         messageType: messageType || 'text',
         attachmentUrl: attachmentUrl || null
-      }
-    });
-    // Fetch sender/receiver/case details
-    const messageWithDetails = await prisma.message.findUnique({
-      where: { id: newMessage.id },
+      },
       include: {
-        sender: true,
-        receiver: true,
-        case: true
+        sender: {
+          select: { id: true, name: true, email: true, role: true, profilePicture: true }
+        },
+        receiver: {
+          select: { id: true, name: true, email: true, role: true, profilePicture: true }
+        },
+        case: {
+          select: { id: true, title: true, caseNumber: true }
+        }
       }
     });
-
-    // TODO: Emit socket event for real-time notification
-    // io.to(receiverId).emit('new_message', messageWithDetails);
 
     res.status(201).json({
       success: true,
       message: 'Message sent successfully',
-      data: { message: messageWithDetails }
+      data: { message: newMessage }
     });
   } catch (error) {
     next(error);
@@ -98,20 +103,30 @@ const getConversation = async (req, res, next) => {
     const otherUserId = parseInt(req.params.userId);
     const { caseId, limit = 50, offset = 0 } = req.query;
 
+    const where = {
+      OR: [
+        { senderId: currentUserId, receiverId: otherUserId },
+        { senderId: otherUserId, receiverId: currentUserId }
+      ]
+    };
+
+    if (caseId) {
+      where.caseId = parseInt(caseId);
+    }
+
+    // Get messages
     const messages = await prisma.message.findMany({
-      where: {
-        OR: [
-          { senderId: currentUserId, receiverId: otherUserId },
-          { senderId: otherUserId, receiverId: currentUserId }
-        ],
-        ...(caseId ? { caseId: Number(caseId) } : {})
-      },
-      take: parseInt(limit),
+      where,
       skip: parseInt(offset),
+      take: parseInt(limit),
       orderBy: { createdAt: 'asc' },
       include: {
-        sender: true,
-        receiver: true
+        sender: {
+          select: { id: true, name: true, profilePicture: true, role: true }
+        },
+        receiver: {
+          select: { id: true, name: true, profilePicture: true, role: true }
+        }
       }
     });
 
@@ -122,7 +137,10 @@ const getConversation = async (req, res, next) => {
         senderId: otherUserId,
         isRead: false
       },
-      data: { isRead: true, readAt: new Date() }
+      data: {
+        isRead: true,
+        readAt: new Date()
+      }
     });
 
     res.json({
@@ -144,77 +162,91 @@ const getAllConversations = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    // Get all users current user has conversed with
-    const conversations = await Message.findAll({
-      where: {
-        [Op.or]: [
-          { senderId: userId },
-          { receiverId: userId }
-        ]
-      },
-      attributes: [
-        [Message.sequelize.fn('MAX', Message.sequelize.col('id')), 'lastMessageId'],
-        [Message.sequelize.fn('MAX', Message.sequelize.col('created_at')), 'lastMessageTime']
-      ],
-      group: [
-        Message.sequelize.literal(`CASE WHEN sender_id = ${userId} THEN receiver_id ELSE sender_id END`)
-      ],
-      order: [[Message.sequelize.literal('lastMessageTime'), 'DESC']],
-      raw: true
+    // Get all unique users current user has conversed with
+    const sentMessages = await prisma.message.findMany({
+      where: { senderId: userId },
+      distinct: ['receiverId'],
+      select: { receiverId: true }
     });
 
-    // Get detailed info for each conversation
-    const conversationDetails = await Promise.all(
-      conversations.map(async (conv) => {
-        const lastMessage = conv.lastMessageId ? await Message.findByPk(conv.lastMessageId, {
-          include: [
-            { model: User, as: 'sender', attributes: ['id', 'name', 'profilePicture', 'role'] },
-            { model: User, as: 'receiver', attributes: ['id', 'name', 'profilePicture', 'role'] },
-            { model: Case, as: 'case', attributes: ['id', 'title', 'caseNumber'] }
-          ]
-          }) : null;
+    const receivedMessages = await prisma.message.findMany({
+      where: { receiverId: userId },
+      distinct: ['senderId'],
+      select: { senderId: true }
+    });
 
-          // If there's no lastMessage (edge case), skip this conversation
-          if (!lastMessage) {
-            return null;
-          }
+    // Combine and get unique user IDs
+    const userIds = new Set([
+      ...sentMessages.map(m => m.receiverId),
+      ...receivedMessages.map(m => m.senderId)
+    ]);
 
-          // Determine the other user
-          const otherUser = lastMessage.senderId === userId ? lastMessage.receiver : lastMessage.sender;
-
-          // Count unread messages from this user
-          const unreadCount = await Message.count({
-            where: {
-              senderId: otherUser.id,
-              receiverId: userId,
-              isRead: false
-            }
-          });
-
-          return {
-            user: otherUser,
-            lastMessage: {
-              id: lastMessage.id,
-              message: lastMessage.message,
-              messageType: lastMessage.messageType,
-              createdAt: lastMessage.createdAt,
-              isRead: lastMessage.isRead
+    // Get conversation details for each user
+    const conversations = await Promise.all(
+      Array.from(userIds).map(async (otherUserId) => {
+        // Get last message
+        const lastMessage = await prisma.message.findFirst({
+          where: {
+            OR: [
+              { senderId: userId, receiverId: otherUserId },
+              { senderId: otherUserId, receiverId: userId }
+            ]
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            sender: {
+              select: { id: true, name: true, profilePicture: true, role: true }
             },
-            case: lastMessage.case,
-            unreadCount
-          };
+            receiver: {
+              select: { id: true, name: true, profilePicture: true, role: true }
+            },
+            case: {
+              select: { id: true, title: true, caseNumber: true }
+            }
+          }
+        });
+
+        // Get other user details
+        const otherUser = lastMessage.senderId === userId 
+          ? lastMessage.receiver 
+          : lastMessage.sender;
+
+        // Count unread messages from this user
+        const unreadCount = await prisma.message.count({
+          where: {
+            senderId: otherUserId,
+            receiverId: userId,
+            isRead: false
+          }
+        });
+
+        return {
+          user: otherUser,
+          lastMessage: {
+            id: lastMessage.id,
+            message: lastMessage.message,
+            messageType: lastMessage.messageType,
+            createdAt: lastMessage.createdAt,
+            isRead: lastMessage.isRead
+          },
+          case: lastMessage.case,
+          unreadCount
+        };
       })
     );
-      // Remove any null entries caused by missing lastMessage
-      const filtered = conversationDetails.filter(c => c !== null);
 
-      res.json({
-        success: true,
-        data: {
-          conversations: filtered,
-          count: filtered.length
-        }
-      });
+    // Sort by last message time
+    conversations.sort((a, b) => 
+      new Date(b.lastMessage.createdAt) - new Date(a.lastMessage.createdAt)
+    );
+
+    res.json({
+      success: true,
+      data: {
+        conversations,
+        count: conversations.length
+      }
+    });
   } catch (error) {
     next(error);
   }
@@ -225,12 +257,15 @@ const getAllConversations = async (req, res, next) => {
 // @access  Private
 const getCaseMessages = async (req, res, next) => {
   try {
-    const caseId = req.params.caseId;
+    const caseId = parseInt(req.params.caseId);
     const userId = req.user.id;
     const { limit = 50, offset = 0 } = req.query;
 
     // Verify case access
-  const caseData = await prisma.case.findUnique({ where: { id: Number(caseId) } });
+    const caseData = await prisma.case.findUnique({
+      where: { id: caseId }
+    });
+
     if (!caseData) {
       return res.status(404).json({
         success: false,
@@ -251,25 +286,33 @@ const getCaseMessages = async (req, res, next) => {
       });
     }
 
+    // Get messages
     const messages = await prisma.message.findMany({
-      where: { caseId: Number(caseId) },
-      take: parseInt(limit),
+      where: { caseId },
       skip: parseInt(offset),
+      take: parseInt(limit),
       orderBy: { createdAt: 'asc' },
       include: {
-        sender: true,
-        receiver: true
+        sender: {
+          select: { id: true, name: true, profilePicture: true, role: true }
+        },
+        receiver: {
+          select: { id: true, name: true, profilePicture: true, role: true }
+        }
       }
     });
 
     // Mark messages as read for current user
     await prisma.message.updateMany({
       where: {
-        caseId: Number(caseId),
+        caseId,
         receiverId: userId,
         isRead: false
       },
-      data: { isRead: true, readAt: new Date() }
+      data: {
+        isRead: true,
+        readAt: new Date()
+      }
     });
 
     res.json({
@@ -289,10 +332,13 @@ const getCaseMessages = async (req, res, next) => {
 // @access  Private
 const markAsRead = async (req, res, next) => {
   try {
-    const messageId = req.params.id;
+    const messageId = parseInt(req.params.id);
     const userId = req.user.id;
 
-  const message = await prisma.message.findUnique({ where: { id: Number(messageId) } });
+    const message = await prisma.message.findUnique({
+      where: { id: messageId }
+    });
+
     if (!message) {
       return res.status(404).json({
         success: false,
@@ -309,8 +355,11 @@ const markAsRead = async (req, res, next) => {
     }
 
     await prisma.message.update({
-      where: { id: Number(messageId) },
-      data: { isRead: true, readAt: new Date() }
+      where: { id: messageId },
+      data: {
+        isRead: true,
+        readAt: new Date()
+      }
     });
 
     res.json({
@@ -327,10 +376,13 @@ const markAsRead = async (req, res, next) => {
 // @access  Private
 const deleteMessage = async (req, res, next) => {
   try {
-    const messageId = req.params.id;
+    const messageId = parseInt(req.params.id);
     const userId = req.user.id;
 
-  const message = await prisma.message.findUnique({ where: { id: Number(messageId) } });
+    const message = await prisma.message.findUnique({
+      where: { id: messageId }
+    });
+
     if (!message) {
       return res.status(404).json({
         success: false,
@@ -347,8 +399,11 @@ const deleteMessage = async (req, res, next) => {
     }
 
     await prisma.message.update({
-      where: { id: Number(messageId) },
-      data: { isDeleted: true, deletedBy: userId }
+      where: { id: messageId },
+      data: {
+        isDeleted: true,
+        deletedBy: userId
+      }
     });
 
     res.json({
