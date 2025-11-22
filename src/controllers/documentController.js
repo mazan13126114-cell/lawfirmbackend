@@ -3,14 +3,16 @@ const { prisma } = require('../config/prisma');
 const path = require('path');
 const fs = require('fs');
 
-// @desc    Upload document to case
-// @route   POST /api/documents/upload
-// @access  Private
+// =======================
+// Upload a single document to a case
+// =======================
+
 const uploadDocument = async (req, res, next) => {
   try {
     const { caseId, documentType, description } = req.body;
     const userId = req.user.id;
 
+    // Ensure a file was uploaded
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -18,21 +20,20 @@ const uploadDocument = async (req, res, next) => {
       });
     }
 
-    // Verify case exists and user has access
+    // Validate case existence
     const caseData = await prisma.case.findUnique({
-      where: { id: parseInt(caseId) }
+      where: { id: parseInt(caseId) } // <-- parse to avoid string injection
     });
 
     if (!caseData) {
-      // Delete uploaded file if case not found
-      fs.unlinkSync(req.file.path);
+      fs.unlinkSync(req.file.path); // cleanup uploaded file if case invalid
       return res.status(404).json({
         success: false,
         message: 'Case not found'
       });
     }
 
-    // Check authorization
+    // Check authorization: only client, assigned lawyer, or admin
     const isAuthorized = 
       caseData.clientId === userId || 
       caseData.lawyerId === userId ||
@@ -46,7 +47,7 @@ const uploadDocument = async (req, res, next) => {
       });
     }
 
-    // Create document record
+    // Save document in database
     const document = await prisma.document.create({
       data: {
         caseId: parseInt(caseId),
@@ -60,12 +61,8 @@ const uploadDocument = async (req, res, next) => {
         description: description || null
       },
       include: {
-        uploader: {
-          select: { id: true, name: true, role: true }
-        },
-        case: {
-          select: { id: true, title: true, caseNumber: true }
-        }
+        uploader: { select: { id: true, name: true, role: true } },
+        case: { select: { id: true, title: true, caseNumber: true } }
       }
     });
 
@@ -75,17 +72,16 @@ const uploadDocument = async (req, res, next) => {
       data: { document }
     });
   } catch (error) {
-    // Clean up uploaded file on error
-    if (req.file) {
-      fs.unlinkSync(req.file.path);
-    }
+    // Remove uploaded file if any error occurs
+    if (req.file) fs.unlinkSync(req.file.path);
     next(error);
   }
 };
 
-// @desc    Upload multiple documents
-// @route   POST /api/documents/upload-multiple
-// @access  Private
+// =======================
+// Upload multiple documents
+// =======================
+
 const uploadMultipleDocuments = async (req, res, next) => {
   try {
     const { caseId, documentType, description } = req.body;
@@ -98,7 +94,7 @@ const uploadMultipleDocuments = async (req, res, next) => {
       });
     }
 
-    // Verify case
+    // Validate case
     const caseData = await prisma.case.findUnique({
       where: { id: parseInt(caseId) }
     });
@@ -111,7 +107,7 @@ const uploadMultipleDocuments = async (req, res, next) => {
       });
     }
 
-    // Check authorization
+    // Authorization check
     const isAuthorized = 
       caseData.clientId === userId || 
       caseData.lawyerId === userId ||
@@ -125,7 +121,7 @@ const uploadMultipleDocuments = async (req, res, next) => {
       });
     }
 
-    // Create document records for all files
+    // Save all files to DB
     const documents = await Promise.all(
       req.files.map(file =>
         prisma.document.create({
@@ -141,9 +137,7 @@ const uploadMultipleDocuments = async (req, res, next) => {
             description: description || null
           },
           include: {
-            uploader: {
-              select: { id: true, name: true }
-            }
+            uploader: { select: { id: true, name: true } }
           }
         })
       )
@@ -155,74 +149,56 @@ const uploadMultipleDocuments = async (req, res, next) => {
       data: { documents }
     });
   } catch (error) {
-    if (req.files) {
-      req.files.forEach(file => fs.unlinkSync(file.path));
-    }
+    if (req.files) req.files.forEach(file => fs.unlinkSync(file.path));
     next(error);
   }
 };
 
-// @desc    Get all documents for a case
-// @route   GET /api/documents/case/:caseId
-// @access  Private
+// =======================
+// Get all documents for a case
+// =======================
+
 const getCaseDocuments = async (req, res, next) => {
   try {
     const caseId = parseInt(req.params.caseId);
     const userId = req.user.id;
 
-    // Verify case access
-    const caseData = await prisma.case.findUnique({
-      where: { id: caseId }
-    });
-
+    // Verify case exists
+    const caseData = await prisma.case.findUnique({ where: { id: caseId } });
     if (!caseData) {
-      return res.status(404).json({
-        success: false,
-        message: 'Case not found'
-      });
+      return res.status(404).json({ success: false, message: 'Case not found' });
     }
 
+    // Authorization check
     const isAuthorized = 
       caseData.clientId === userId || 
       caseData.lawyerId === userId ||
       req.user.role === 'admin';
 
     if (!isAuthorized) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized' });
     }
 
-    // Get documents
+    // Get documents with uploader & verifier info
     const documents = await prisma.document.findMany({
       where: { caseId },
       orderBy: { createdAt: 'desc' },
       include: {
-        uploader: {
-          select: { id: true, name: true, role: true }
-        },
-        verifier: {
-          select: { id: true, name: true }
-        }
+        uploader: { select: { id: true, name: true, role: true } },
+        verifier: { select: { id: true, name: true } }
       }
     });
 
-    res.json({
-      success: true,
-      data: {
-        documents,
-        count: documents.length
-      }
-    });
+    res.json({ success: true, data: { documents, count: documents.length } });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Download document
-// @route   GET /api/documents/:id/download
-// @access  Private
+// =======================
+// Download document
+// =======================
+
 const downloadDocument = async (req, res, next) => {
   try {
     const documentId = parseInt(req.params.id);
@@ -230,49 +206,34 @@ const downloadDocument = async (req, res, next) => {
 
     const document = await prisma.document.findUnique({
       where: { id: documentId },
-      include: {
-        case: true
-      }
+      include: { case: true }
     });
 
-    if (!document) {
-      return res.status(404).json({
-        success: false,
-        message: 'Document not found'
-      });
-    }
+    if (!document) return res.status(404).json({ success: false, message: 'Document not found' });
 
-    // Check authorization
+    // Authorization: only uploader, assigned lawyer, client, or admin
     const isAuthorized = 
       document.case.clientId === userId || 
       document.case.lawyerId === userId ||
       req.user.role === 'admin';
 
-    if (!isAuthorized) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to download this document'
-      });
-    }
+    if (!isAuthorized) return res.status(403).json({ success: false, message: 'Not authorized' });
 
-    // Check if file exists
+    // File existence check
     if (!fs.existsSync(document.filePath)) {
-      return res.status(404).json({
-        success: false,
-        message: 'File not found on server'
-      });
+      return res.status(404).json({ success: false, message: 'File not found on server' });
     }
 
-    // Send file
     res.download(document.filePath, document.originalName);
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Delete document
-// @route   DELETE /api/documents/:id
-// @access  Private
+// =======================
+// Delete document
+// =======================
+
 const deleteDocument = async (req, res, next) => {
   try {
     const documentId = parseInt(req.params.id);
@@ -280,17 +241,10 @@ const deleteDocument = async (req, res, next) => {
 
     const document = await prisma.document.findUnique({
       where: { id: documentId },
-      include: {
-        case: true
-      }
+      include: { case: true }
     });
 
-    if (!document) {
-      return res.status(404).json({
-        success: false,
-        message: 'Document not found'
-      });
-    }
+    if (!document) return res.status(404).json({ success: false, message: 'Document not found' });
 
     // Only uploader, assigned lawyer, or admin can delete
     const canDelete = 
@@ -298,45 +252,32 @@ const deleteDocument = async (req, res, next) => {
       document.case.lawyerId === userId ||
       req.user.role === 'admin';
 
-    if (!canDelete) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to delete this document'
-      });
-    }
+    if (!canDelete) return res.status(403).json({ success: false, message: 'Not authorized' });
 
-    // Delete file from filesystem
-    if (fs.existsSync(document.filePath)) {
-      fs.unlinkSync(document.filePath);
-    }
+    // Delete file from filesystem if exists
+    if (fs.existsSync(document.filePath)) fs.unlinkSync(document.filePath);
 
     // Delete from database
-    await prisma.document.delete({
-      where: { id: documentId }
-    });
+    await prisma.document.delete({ where: { id: documentId } });
 
-    res.json({
-      success: true,
-      message: 'Document deleted successfully'
-    });
+    res.json({ success: true, message: 'Document deleted successfully' });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Verify document (Lawyer/Admin only)
-// @route   PUT /api/documents/:id/verify
-// @access  Private (Lawyer/Admin)
+// =======================
+// Verify document
+// =======================
+
 const verifyDocument = async (req, res, next) => {
   try {
     const documentId = parseInt(req.params.id);
     const userId = req.user.id;
 
+    // Only lawyers/admins
     if (req.user.role !== 'lawyer' && req.user.role !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only lawyers and admins can verify documents'
-      });
+      return res.status(403).json({ success: false, message: 'Only lawyers and admins can verify documents' });
     }
 
     const document = await prisma.document.findUnique({
@@ -344,97 +285,54 @@ const verifyDocument = async (req, res, next) => {
       include: { case: true }
     });
 
-    if (!document) {
-      return res.status(404).json({
-        success: false,
-        message: 'Document not found'
-      });
-    }
+    if (!document) return res.status(404).json({ success: false, message: 'Document not found' });
 
-    // Lawyer can only verify documents from their cases
+    // Lawyer can only verify their own cases
     if (req.user.role === 'lawyer' && document.case.lawyerId !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to verify this document'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to verify this document' });
     }
 
-    // Update document
     const updatedDocument = await prisma.document.update({
       where: { id: documentId },
-      data: {
-        isVerified: true,
-        verifiedBy: userId,
-        verifiedAt: new Date()
-      },
+      data: { isVerified: true, verifiedBy: userId, verifiedAt: new Date() },
       include: {
-        uploader: {
-          select: { id: true, name: true }
-        },
-        verifier: {
-          select: { id: true, name: true }
-        }
+        uploader: { select: { id: true, name: true } },
+        verifier: { select: { id: true, name: true } }
       }
     });
 
-    res.json({
-      success: true,
-      message: 'Document verified successfully',
-      data: { document: updatedDocument }
-    });
+    res.json({ success: true, message: 'Document verified successfully', data: { document: updatedDocument } });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Upload profile picture
-// @route   POST /api/documents/profile-picture
-// @access  Private
+// =======================
+// Upload profile picture
+// =======================
+
 const uploadProfilePicture = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
     if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'No file uploaded'
-      });
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    // Get user's old profile picture
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { profilePicture: true }
-    });
-
-    // Delete old profile picture if exists
-    if (user.profilePicture && fs.existsSync(user.profilePicture)) {
-      fs.unlinkSync(user.profilePicture);
-    }
+    // Remove old profile picture if exists
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { profilePicture: true } });
+    if (user.profilePicture && fs.existsSync(user.profilePicture)) fs.unlinkSync(user.profilePicture);
 
     // Update user with new profile picture
     const updatedUser = await prisma.user.update({
       where: { id: userId },
-      data: {
-        profilePicture: req.file.path
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        profilePicture: true
-      }
+      data: { profilePicture: req.file.path },
+      select: { id: true, name: true, email: true, profilePicture: true }
     });
 
-    res.json({
-      success: true,
-      message: 'Profile picture uploaded successfully',
-      data: { user: updatedUser }
-    });
+    res.json({ success: true, message: 'Profile picture uploaded successfully', data: { user: updatedUser } });
   } catch (error) {
-    if (req.file) {
-      fs.unlinkSync(req.file.path);
-    }
+    if (req.file) fs.unlinkSync(req.file.path);
     next(error);
   }
 };

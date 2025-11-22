@@ -1,9 +1,13 @@
-// src/middleware/validation.js
 const { body, param, query, validationResult } = require('express-validator');
 
-// Handle validation errors
+// =======================
+// Validation Result Handler
+// =======================
+//     Handle validation errors returned by express-validator
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
+
   if (!errors.isEmpty()) {
     return res.status(400).json({
       success: false,
@@ -14,8 +18,13 @@ const validate = (req, res, next) => {
       }))
     });
   }
+
   next();
 };
+
+// =======================
+// USER VALIDATIONS
+// =======================
 
 // Register validation rules
 const registerValidation = [
@@ -43,11 +52,11 @@ const registerValidation = [
   body('phone')
     .optional()
     .matches(/^[0-9+\-\s()]*$/).withMessage('Invalid phone number format'),
-  
+
   validate
 ];
 
-// Login validation rules
+// Login validation
 const loginValidation = [
   body('email')
     .trim()
@@ -57,7 +66,7 @@ const loginValidation = [
   
   body('password')
     .notEmpty().withMessage('Password is required'),
-  
+
   validate
 ];
 
@@ -68,7 +77,7 @@ const forgotPasswordValidation = [
     .notEmpty().withMessage('Email is required')
     .isEmail().withMessage('Invalid email address')
     .normalizeEmail(),
-  
+
   validate
 ];
 
@@ -91,7 +100,7 @@ const resetPasswordValidation = [
       }
       return true;
     }),
-  
+
   validate
 ];
 
@@ -115,7 +124,7 @@ const updateProfileValidation = [
     .optional()
     .trim()
     .isLength({ max: 255 }).withMessage('Specialization must be less than 255 characters'),
-  
+
   validate
 ];
 
@@ -138,11 +147,13 @@ const changePasswordValidation = [
       }
       return true;
     }),
-  
+
   validate
 ];
 
-// ===== CASE VALIDATIONS =====
+// =======================
+// CASE VALIDATIONS
+// =======================
 
 // Create case validation
 const createCaseValidation = [
@@ -165,7 +176,7 @@ const createCaseValidation = [
     .optional()
     .isIn(['low', 'medium', 'high', 'urgent'])
     .withMessage('Invalid priority level'),
-  
+
   validate
 ];
 
@@ -195,7 +206,7 @@ const updateCaseValidation = [
     .optional()
     .isIn(['civil', 'criminal', 'corporate', 'family', 'property', 'labor', 'other'])
     .withMessage('Invalid case type'),
-  
+
   validate
 ];
 
@@ -204,11 +215,13 @@ const assignLawyerValidation = [
   body('lawyerId')
     .optional()
     .isInt().withMessage('Lawyer ID must be a number'),
-  
+
   validate
 ];
 
-// ===== MESSAGE VALIDATIONS =====
+// =======================
+// MESSAGE VALIDATIONS
+// =======================
 
 // Send message validation
 const sendMessageValidation = [
@@ -233,7 +246,7 @@ const sendMessageValidation = [
   body('attachmentUrl')
     .optional()
     .isURL().withMessage('Invalid attachment URL'),
-  
+
   validate
 ];
 

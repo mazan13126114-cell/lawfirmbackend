@@ -1,49 +1,56 @@
 // src/config/fileUpload.js
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
-// Create uploads directory if it doesn't exist
+const multer = require('multer'); // Middleware to handle multipart/form-data (file uploads)
+const path = require('path'); // Node module to handle file paths
+const fs = require('fs'); // Node module to interact with the file system
+
+// ===== FOLDER SETUP =====
+// Define directories for uploads
 const uploadsDir = './uploads';
 const documentsDir = './uploads/documents';
 const profilesDir = './uploads/profiles';
 
+// Create directories if they do not exist
 [uploadsDir, documentsDir, profilesDir].forEach(dir => {
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true }); // recursive:true creates nested folders if needed
   }
 });
 
-// Storage configuration for documents
+// ===== DOCUMENT STORAGE CONFIG =====
 const documentStorage = multer.diskStorage({
+  // Destination folder for uploaded documents
   destination: function (req, file, cb) {
     cb(null, documentsDir);
   },
+  // Generate unique filename to avoid conflicts
   filename: function (req, file, cb) {
-    // Generate unique filename
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const nameWithoutExt = path.basename(file.originalname, ext);
-    const sanitizedName = nameWithoutExt.replace(/[^a-zA-Z0-9]/g, '_');
-    cb(null, `doc-${uniqueSuffix}-${sanitizedName}${ext}`);
+    const ext = path.extname(file.originalname); // Get file extension
+    const nameWithoutExt = path.basename(file.originalname, ext); // Get original name without extension
+    const sanitizedName = nameWithoutExt.replace(/[^a-zA-Z0-9]/g, '_'); // Replace unsafe chars with _
+    cb(null, `doc-${uniqueSuffix}-${sanitizedName}${ext}`); // Final filename
   }
 });
 
-// Storage configuration for profile pictures
+// ===== PROFILE PICTURE STORAGE CONFIG =====
 const profileStorage = multer.diskStorage({
+  // Destination folder for profile pictures
   destination: function (req, file, cb) {
     cb(null, profilesDir);
   },
+  // Generate unique filename
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `profile-${uniqueSuffix}${ext}`);
+    const ext = path.extname(file.originalname); // Keep original extension
+    cb(null, `profile-${uniqueSuffix}${ext}`); // Final filename format
   }
 });
 
-// File filter for documents
+// ===== FILE FILTERS =====
+
+// Allowed document types
 const documentFileFilter = (req, file, cb) => {
-  // Allowed file types
   const allowedTypes = [
     'application/pdf',
     'application/msword',
@@ -57,55 +64,54 @@ const documentFileFilter = (req, file, cb) => {
   ];
 
   if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
+    cb(null, true); // Accept file
   } else {
-    cb(new Error('Invalid file type. Only PDF, DOC, DOCX, XLS, XLSX, JPG, PNG, and TXT files are allowed.'), false);
+    cb(new Error('Invalid file type. Only PDF, DOC, DOCX, XLS, XLSX, JPG, PNG, and TXT files are allowed.'), false); // Reject file
   }
 };
 
-// File filter for profile pictures
+// Allowed image types for profile pictures
 const imageFileFilter = (req, file, cb) => {
   const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg'];
 
   if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
+    cb(null, true); // Accept file
   } else {
-    cb(new Error('Invalid file type. Only JPG, JPEG, and PNG images are allowed.'), false);
+    cb(new Error('Invalid file type. Only JPG, JPEG, and PNG images are allowed.'), false); // Reject file
   }
 };
 
-// Upload middleware for documents
+// ===== MULTER UPLOAD INSTANCES =====
+
+// Single document upload (max 10MB)
 const uploadDocument = multer({
   storage: documentStorage,
   fileFilter: documentFileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max file size
-  }
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 });
 
-// Upload middleware for profile pictures
+// Single profile picture upload (max 2MB)
 const uploadProfilePicture = multer({
   storage: profileStorage,
   fileFilter: imageFileFilter,
-  limits: {
-    fileSize: 2 * 1024 * 1024, // 2MB max file size
-  }
+  limits: { fileSize: 2 * 1024 * 1024 } // 2MB
 });
 
-// Multiple file upload
+// Multiple documents upload (up to 5 files, each max 10MB)
 const uploadMultipleDocuments = multer({
   storage: documentStorage,
   fileFilter: documentFileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024,
-    files: 5 // Maximum 5 files at once
+    fileSize: 10 * 1024 * 1024, // 10MB per file
+    files: 5 // Maximum 5 files per request
   }
 });
 
+// ===== EXPORT MODULES =====
 module.exports = {
-  uploadDocument,
-  uploadProfilePicture,
-  uploadMultipleDocuments,
-  documentsDir,
-  profilesDir
+  uploadDocument,           // Middleware for single document upload
+  uploadProfilePicture,     // Middleware for profile picture upload
+  uploadMultipleDocuments,  // Middleware for multiple documents upload
+  documentsDir,             // Export document folder path
+  profilesDir               // Export profile picture folder path
 };

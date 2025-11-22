@@ -1,21 +1,27 @@
-// src/controllers/aiController.js (Prisma Version)
-const { prisma } = require('../config/prisma');
-const {
-  sendAIMessage,
-  getLegalAdvice,
-  analyzeCaseProbability,
-  analyzeDocument,
-  getLegalDisclaimer
-} = require('../utils/aiService');
+/* =================================================================
+   Handles all AI-related endpoints, including
+   chatbot interaction, legal advice, case prediction, document
+   analysis, and AI query history.
+   ================================================================= */
 
-// @desc    Chat with AI assistant
-// @route   POST /api/ai/chat
-// @access  Private
+const { prisma } = require('../config/prisma'); // Import Prisma client for DB queries
+const {
+  sendAIMessage,       // Function to send messages to AI chatbot
+  getLegalAdvice,      // Function to get AI-generated legal advice
+  analyzeCaseProbability, // Function to predict case success probability
+  analyzeDocument,     // Function to analyze document content
+  getLegalDisclaimer   // Function to get disclaimer text for AI responses
+} = require('../utils/aiService'); // Import AI service utilities
+
+/* =================================================================
+    Chat with AI Assistant
+   ================================================================= */
 const chatWithAI = async (req, res, next) => {
   try {
-    const { message, chatId } = req.body;
-    const userId = req.user.id;
+    const { message, chatId } = req.body; // Extract message and chatId from request body
+    const userId = req.user.id; // Get authenticated user ID
 
+    // Validate input: message must not be empty
     if (!message || message.trim().length === 0) {
       return res.status(400).json({
         success: false,
@@ -23,9 +29,10 @@ const chatWithAI = async (req, res, next) => {
       });
     }
 
-    // Send message to AI
+    // Send message to AI and get response
     const aiResponse = await sendAIMessage(message, chatId);
 
+    // Check if AI responded successfully
     if (!aiResponse.success) {
       return res.status(500).json({
         success: false,
@@ -34,19 +41,20 @@ const chatWithAI = async (req, res, next) => {
       });
     }
 
-    // Log the interaction
-    await AiLogs.create({
-      userId,
-      queryType: 'chatbot',
-      prompt: message,
-      response: aiResponse.message,
-      model: 'GPT-5',
-      status: 'success',
-      metadata: {
-        chatId: aiResponse.chatId
+    // Log AI interaction in the database
+    await prisma.aiLog.create({
+      data: {
+        userId,
+        queryType: 'chatbot',
+        prompt: message,
+        response: aiResponse.message,
+        model: 'GPT-5',
+        status: 'success',
+        metadata: { chatId: aiResponse.chatId }
       }
     });
 
+    // Return AI response with disclaimer and timestamp
     res.json({
       success: true,
       data: {
@@ -57,18 +65,19 @@ const chatWithAI = async (req, res, next) => {
       }
     });
   } catch (error) {
-    next(error);
+    next(error); // Pass errors to Express error handler
   }
 };
 
-// @desc    Get legal advice from AI
-// @route   POST /api/ai/legal-advice
-// @access  Private
+/* =================================================================
+    Get Legal Advice from AI
+   ================================================================= */
 const getAILegalAdvice = async (req, res, next) => {
   try {
-    const { query, chatId, caseId } = req.body;
+    const { query, chatId, caseId } = req.body; // Extract input
     const userId = req.user.id;
 
+    // Validate query input
     if (!query || query.trim().length === 0) {
       return res.status(400).json({
         success: false,
@@ -76,33 +85,21 @@ const getAILegalAdvice = async (req, res, next) => {
       });
     }
 
-    // Verify case access if caseId provided
+    // Optional: Check case access if caseId provided
     if (caseId) {
-      const caseData = await Case.findByPk(caseId);
+      const caseData = await prisma.case.findUnique({ where: { id: caseId } });
       if (!caseData) {
-        return res.status(404).json({
-          success: false,
-          message: 'Case not found'
-        });
+        return res.status(404).json({ success: false, message: 'Case not found' });
       }
 
-      // Check authorization
-      if (req.user.role === 'client' && caseData.clientId !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Not authorized to access this case'
-        });
-      }
-
-      if (req.user.role === 'lawyer' && caseData.lawyerId !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Not authorized to access this case'
-        });
+      // Authorization: clients/lawyers can only access their own cases
+      if ((req.user.role === 'client' && caseData.clientId !== userId) ||
+          (req.user.role === 'lawyer' && caseData.lawyerId !== userId)) {
+        return res.status(403).json({ success: false, message: 'Not authorized to access this case' });
       }
     }
 
-    // Get legal advice from AI
+    // Get AI-generated legal advice
     const aiResponse = await getLegalAdvice(query, chatId);
 
     if (!aiResponse.success) {
@@ -113,20 +110,21 @@ const getAILegalAdvice = async (req, res, next) => {
       });
     }
 
-    // Log the interaction
-    await AiLogs.create({
-      userId,
-      caseId: caseId || null,
-      queryType: 'legal_research',
-      prompt: query,
-      response: aiResponse.message,
-      model: 'GPT-5',
-      status: 'success',
-      metadata: {
-        chatId: aiResponse.chatId
+    // Log AI query to database
+    await prisma.aiLog.create({
+      data: {
+        userId,
+        caseId: caseId || null,
+        queryType: 'legal_research',
+        prompt: query,
+        response: aiResponse.message,
+        model: 'GPT-5',
+        status: 'success',
+        metadata: { chatId: aiResponse.chatId }
       }
     });
 
+    // Return AI legal advice with disclaimer
     res.json({
       success: true,
       data: {
@@ -141,96 +139,73 @@ const getAILegalAdvice = async (req, res, next) => {
   }
 };
 
-// @desc    Predict case success probability
-// @route   POST /api/ai/predict-case
-// @access  Private
+/* =================================================================
+    Predict Case Success Probability
+   POST /api/ai/predict-case
+   Private access
+   ================================================================= */
 const predictCaseSuccess = async (req, res, next) => {
   try {
     const { caseId, title, description, caseType } = req.body;
     const userId = req.user.id;
 
-    // If caseId provided, fetch case details
+    // Fetch existing case details if caseId provided
     let caseDetails;
     if (caseId) {
-      const existingCase = await Case.findByPk(caseId);
-      
+      const existingCase = await prisma.case.findUnique({ where: { id: caseId } });
       if (!existingCase) {
-        return res.status(404).json({
-          success: false,
-          message: 'Case not found'
-        });
+        return res.status(404).json({ success: false, message: 'Case not found' });
       }
 
-      // Check authorization
-      if (req.user.role === 'client' && existingCase.clientId !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Not authorized to access this case'
-        });
+      // Authorization checks
+      if ((req.user.role === 'client' && existingCase.clientId !== userId) ||
+          (req.user.role === 'lawyer' && existingCase.lawyerId !== userId)) {
+        return res.status(403).json({ success: false, message: 'Not authorized to access this case' });
       }
 
-      if (req.user.role === 'lawyer' && existingCase.lawyerId !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Not authorized to access this case'
-        });
-      }
-
-      caseDetails = {
-        title: existingCase.title,
-        description: existingCase.description,
-        caseType: existingCase.caseType
-      };
+      caseDetails = { title: existingCase.title, description: existingCase.description, caseType: existingCase.caseType };
     } else {
-      // Use provided details for new case prediction
+      // Use input for new case
       if (!title || !description || !caseType) {
-        return res.status(400).json({
-          success: false,
-          message: 'Case title, description, and type are required'
-        });
+        return res.status(400).json({ success: false, message: 'Case title, description, and type are required' });
       }
-
       caseDetails = { title, description, caseType };
     }
 
-    // Analyze case with AI
+    // Analyze case probability using AI
     const startTime = Date.now();
     const analysis = await analyzeCaseProbability(caseDetails);
     const responseTime = Date.now() - startTime;
 
     if (!analysis.success) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to analyze case',
-        error: analysis.error
+      return res.status(500).json({ success: false, message: 'Failed to analyze case', error: analysis.error });
+    }
+
+    // Update case probability in DB if caseId exists
+    if (caseId) {
+      await prisma.case.update({
+        where: { id: caseId },
+        data: { probabilityScore: analysis.probability }
       });
     }
 
-    // Update case with probability if caseId provided
-    if (caseId) {
-      await Case.update(
-        { probabilityScore: analysis.probability },
-        { where: { id: caseId } }
-      );
-    }
-
-    // Log the interaction
-    await AiLogs.create({
-      userId,
-      caseId: caseId || null,
-      queryType: 'case_prediction',
-      prompt: JSON.stringify(caseDetails),
-      response: analysis.analysis,
-      model: 'GPT-5',
-      confidence: analysis.probability,
-      responseTime,
-      status: 'success',
-      metadata: {
-        chatId: analysis.chatId,
-        probability: analysis.probability
+    // Log AI analysis
+    await prisma.aiLog.create({
+      data: {
+        userId,
+        caseId: caseId || null,
+        queryType: 'case_prediction',
+        prompt: JSON.stringify(caseDetails),
+        response: analysis.analysis,
+        model: 'GPT-5',
+        confidence: analysis.probability,
+        responseTime,
+        status: 'success',
+        metadata: { chatId: analysis.chatId, probability: analysis.probability }
       }
     });
 
+    // Return analysis and probability
     res.json({
       success: true,
       data: {
@@ -246,92 +221,78 @@ const predictCaseSuccess = async (req, res, next) => {
   }
 };
 
-// @desc    Get AI conversation history
-// @route   GET /api/ai/history
-// @access  Private
+/* =================================================================
+   Get AI Conversation History
+   GET /api/ai/history
+   Private access
+   ================================================================= */
 const getAIHistory = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { caseId, queryType, limit = 20 } = req.query;
 
+    // Build query filter for Prisma
     const where = { userId };
     if (caseId) where.caseId = caseId;
     if (queryType) where.queryType = queryType;
 
-    const history = await AiLogs.findAll({
+    const history = await prisma.aiLog.findMany({
       where,
-      limit: parseInt(limit),
-      order: [['createdAt', 'DESC']],
-      attributes: ['id', 'queryType', 'prompt', 'response', 'confidence', 'createdAt', 'metadata']
+      take: parseInt(limit),
+      orderBy: { createdAt: 'desc' },
+      select: ['id', 'queryType', 'prompt', 'response', 'confidence', 'createdAt', 'metadata']
     });
 
-    res.json({
-      success: true,
-      data: {
-        history,
-        count: history.length
-      }
-    });
+    res.json({ success: true, data: { history, count: history.length } });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Analyze document
-// @route   POST /api/ai/analyze-document
-// @access  Private
+/* =================================================================
+    Analyze Document
+   POST /api/ai/analyze-document
+   Private access
+   ================================================================= */
 const analyzeDocumentAI = async (req, res, next) => {
   try {
     const { documentSummary, caseId, chatId } = req.body;
     const userId = req.user.id;
 
     if (!documentSummary || documentSummary.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Document summary is required'
-      });
+      return res.status(400).json({ success: false, message: 'Document summary is required' });
     }
 
-    // Verify case access if caseId provided
+    // Check case access if caseId provided
     if (caseId) {
-      const caseData = await Case.findByPk(caseId);
+      const caseData = await prisma.case.findUnique({ where: { id: caseId } });
       if (!caseData) {
-        return res.status(404).json({
-          success: false,
-          message: 'Case not found'
-        });
+        return res.status(404).json({ success: false, message: 'Case not found' });
       }
 
       if (req.user.role === 'client' && caseData.clientId !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Not authorized'
-        });
+        return res.status(403).json({ success: false, message: 'Not authorized' });
       }
     }
 
-    // Analyze document
+    // Perform document analysis
     const analysis = await analyzeDocument(documentSummary, chatId);
 
     if (!analysis.success) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to analyze document',
-        error: analysis.error
-      });
+      return res.status(500).json({ success: false, message: 'Failed to analyze document', error: analysis.error });
     }
 
-    // Log the interaction
-    await AiLogs.create({
-      userId,
-      caseId: caseId || null,
-      queryType: 'document_analysis',
-      prompt: documentSummary,
-      response: analysis.message,
-      model: 'GPT-5',
-      status: 'success',
-      metadata: {
-        chatId: analysis.chatId
+    // Log AI document analysis
+    await prisma.aiLog.create({
+      data: {
+        userId,
+        caseId: caseId || null,
+        queryType: 'document_analysis',
+        prompt: documentSummary,
+        response: analysis.message,
+        model: 'GPT-5',
+        status: 'success',
+        metadata: { chatId: analysis.chatId }
       }
     });
 

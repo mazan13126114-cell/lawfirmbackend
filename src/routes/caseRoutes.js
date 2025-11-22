@@ -1,4 +1,3 @@
-// src/routes/caseRoutes.js
 const express = require('express');
 const router = express.Router();
 

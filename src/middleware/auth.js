@@ -3,17 +3,20 @@ const { verifyToken } = require('../utils/jwt');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-// Protect routes - verify JWT token
+// =======================
+// Protect routes middleware
+// =======================
+
 const protect = async (req, res, next) => {
   try {
     let token;
 
-    // Check for token in Authorization header
+    // Check for Bearer token in Authorization header
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
     }
 
-    // Check if token exists
+    // Reject if no token provided
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -21,12 +24,12 @@ const protect = async (req, res, next) => {
       });
     }
 
-    // Verify token
+    // Verify token using JWT utility
     const decoded = verifyToken(token);
 
-    // Get user from database
+    // Fetch user from database
     const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
+      where: { id: decoded.id }, // Use ID from token payload
       select: {
         id: true,
         name: true,
@@ -37,6 +40,7 @@ const protect = async (req, res, next) => {
       }
     });
 
+    // Reject if user not found in DB
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -44,7 +48,7 @@ const protect = async (req, res, next) => {
       });
     }
 
-    // Check if user is active
+    // Reject if account is deactivated
     if (!user.isActive) {
       return res.status(401).json({
         success: false,
@@ -52,10 +56,11 @@ const protect = async (req, res, next) => {
       });
     }
 
-    // Attach user to request object
+    // Attach user info to request object for downstream controllers
     req.user = user;
     next();
   } catch (error) {
+    // Catch token errors (invalid, expired, etc.)
     return res.status(401).json({
       success: false,
       message: error.message || 'Not authorized, token failed'
@@ -63,9 +68,13 @@ const protect = async (req, res, next) => {
   }
 };
 
-// Restrict to specific roles
+// =======================
+// Role-based authorization middleware
+// =======================
+
 const authorize = (...roles) => {
   return (req, res, next) => {
+    // Ensure user exists on request (protect middleware should run first)
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -73,6 +82,7 @@ const authorize = (...roles) => {
       });
     }
 
+    // Check if user role is allowed
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
@@ -80,21 +90,31 @@ const authorize = (...roles) => {
       });
     }
 
+    // Authorized, continue
     next();
   };
 };
 
-// Optional auth - doesn't fail if no token
+// =======================
+// Optional authentication middleware
+// =======================
+//          Allows routes to optionally use authentication
+//          If token exists and is valid, user is attached to req
+//          Otherwise, request continues without user
+
 const optionalAuth = async (req, res, next) => {
   try {
     let token;
 
+    // Check for Bearer token
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
     }
 
     if (token) {
       const decoded = verifyToken(token);
+
+      // Fetch user from database
       const user = await prisma.user.findUnique({
         where: { id: decoded.id },
         select: {
@@ -106,14 +126,16 @@ const optionalAuth = async (req, res, next) => {
         }
       });
 
+      // Attach user if exists and active
       if (user && user.isActive) {
         req.user = user;
       }
     }
 
+    // Continue regardless of token
     next();
   } catch (error) {
-    // Continue without user if token is invalid
+    // Ignore errors and continue without user
     next();
   }
 };

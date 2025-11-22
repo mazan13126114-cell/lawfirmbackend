@@ -3,16 +3,20 @@ const axios = require('axios');
 
 const AI_API_BASE = 'https://batgpt.vercel.app/api/gpt';
 
+// =======================
+// Utility Functions
+// =======================
+
 /**
- * Generate unique chat ID for new conversation
- * @returns {string}
+ * Generate a unique chat ID for a new conversation
+ * @returns {string} chatId
  */
 const generateChatId = () => {
   return `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 };
 
 /**
- * Legal disclaimer text
+ * Provide legal disclaimer text
  * @returns {string}
  */
 const getLegalDisclaimer = () => {
@@ -20,14 +24,14 @@ const getLegalDisclaimer = () => {
 };
 
 /**
- * Normalize AI response to ensure DB-safe data
+ * Normalize AI response to ensure it is safe to store in DB
  * @param {Object} aiResponse
  * @returns {Object}
  */
 const normalizeAIResponse = (aiResponse) => {
   const clone = { ...aiResponse };
 
-  // Ensure analysis/message is string
+  // Ensure analysis/message are strings
   if (clone.analysis && typeof clone.analysis !== 'string') {
     clone.analysis = JSON.stringify(clone.analysis);
   }
@@ -36,7 +40,7 @@ const normalizeAIResponse = (aiResponse) => {
     clone.message = JSON.stringify(clone.message);
   }
 
-  // Ensure probability is number
+  // Ensure probability is numeric
   if (clone.probability !== undefined) {
     clone.probability = Number(clone.probability) || 0;
   }
@@ -44,10 +48,14 @@ const normalizeAIResponse = (aiResponse) => {
   return clone;
 };
 
+// =======================
+// AI Communication Functions
+// =======================
+
 /**
- * Send message to AI chatbot
- * @param {string} message
- * @param {string|null} chatId
+ * Send a message to the AI chatbot
+ * @param {string} message - Message to AI
+ * @param {string|null} chatId - Optional chat ID for conversation
  * @returns {Promise<Object>} AI response
  */
 const sendAIMessage = async (message, chatId = null) => {
@@ -57,10 +65,8 @@ const sendAIMessage = async (message, chatId = null) => {
 
     const response = await axios.get(AI_API_BASE, { params, timeout: 30000 });
 
-    // Determine raw message
     const rawMessage = response.data.message || response.data.response || response.data;
 
-    // Force string for DB safety
     const messageStr = typeof rawMessage === 'string' ? rawMessage : JSON.stringify(rawMessage);
 
     return {
@@ -84,7 +90,7 @@ const sendAIMessage = async (message, chatId = null) => {
 
 /**
  * Get legal advice from AI
- * @param {string} query
+ * @param {string} query - Legal question/query
  * @param {string|null} chatId
  * @returns {Promise<Object>}
  */
@@ -97,7 +103,7 @@ const getLegalAdvice = async (query, chatId = null) => {
 
 /**
  * Analyze case details and predict success probability
- * @param {Object} caseDetails
+ * @param {Object} caseDetails - { title, description, caseType }
  * @returns {Promise<Object>}
  */
 const analyzeCaseProbability = async (caseDetails) => {
@@ -118,10 +124,9 @@ Provide the probability as a number between 0-100, followed by detailed analysis
   const response = await sendAIMessage(prompt);
 
   if (response.success) {
-    // Force string for analysis
-    let analysisStr = typeof response.message === 'string' ? response.message : JSON.stringify(response.message);
+    const analysisStr = typeof response.message === 'string' ? response.message : JSON.stringify(response.message);
 
-    // Extract probability from text (fallback to 50)
+    // Extract probability from AI text
     const probabilityMatch = analysisStr.match(/(\d+)%/);
     const probability = probabilityMatch ? parseInt(probabilityMatch[1]) : 50;
 
@@ -138,7 +143,7 @@ Provide the probability as a number between 0-100, followed by detailed analysis
 };
 
 /**
- * Analyze document summary
+ * Analyze a document summary using AI
  * @param {string} documentSummary
  * @param {string|null} chatId
  * @returns {Promise<Object>}
@@ -155,6 +160,9 @@ Document Summary: ${documentSummary}`;
   return normalizeAIResponse(response);
 };
 
+// =======================
+// Exported Functions
+// =======================
 module.exports = {
   sendAIMessage,
   getLegalAdvice,

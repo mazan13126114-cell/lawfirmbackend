@@ -1,36 +1,75 @@
-// src/server.js
+/* ====================================================================================================
+    OVERVIEW: 
+      It wires everything together like an electrical main panel.
+    TECHNOLOGIES INVOLVED:
+      - Express  → Web server framework
+      - Prisma   → Database  (MySQL)
+      - Helmet   → Security layer (prevents attacks)
+      - CORS     → Allow frontend (Vue) to communicate with backend
+      - dotenv   → Load environment variables
+
+   ==================================================================================================== */
+
+
+//  Load environment variables from .env file like DATABASE_URL, PORT, CLIENT_URL
 require('dotenv').config();
+
+//  Import core dependencies
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+
+//  Database utilities from Prisma config
 const { connectDB, disconnectDB, prisma } = require('./config/prisma');
 
+//  Initialize Express Application
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+
+
+/* ============================================================================================
+   MIDDLEWARE SETUP
+   Middleware acts like "security gates" and "parsers" before requests reach your routes.
+   ============================================================================================ */
+
+//  Helmet → Adds security headers to protect against common attacks 
 app.use(helmet());
+
+//  CORS → Allows frontend (Vue) to talk to backend from another domain or port
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true
 }));
+
+//  Enables JSON parsing for incoming requests
 app.use(express.json());
+
+//  Allows parsing of form-encoded data (extended: true → allows nested objects (like user[address][city]))
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging middleware (development)
+
+
+//  Optional debug logging (only runs in development mode)
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path}`);
+    console.log(` ${req.method} → ${req.path}`);
     next();
   });
 }
 
-// Root route
+
+
+/* =====================================================================
+    BASE ROUTE
+   Quick test route to confirm server is alive and returning structured info.
+   ===================================================================== */
+
 app.get('/', (req, res) => {
   res.json({
-    message: '⚖️ Welcome to LawConnect API',
+    message: 'Yes, you are welcome here ofcourse!',
     version: '1.0.0',
-    status: 'running',
+    status: 'dont worry be happy',
     endpoints: {
       health: '/health',
       dbStatus: '/api/db-status',
@@ -44,99 +83,60 @@ app.get('/', (req, res) => {
   });
 });
 
-// Health check endpoint
+
+
+/* =====================================================================
+    HEALTH CHECK ROUTE
+   Purpose: Used for monitoring by frontend or cloud deployment services.
+   ===================================================================== */
+
 app.get('/health', async (req, res) => {
   try {
-    await db.sequelize.authenticate();
-    
+    await prisma.$connect();
+
     res.json({
       status: 'OK',
       message: 'Server is running',
-      database: 'Connected ✅',
+      database: 'Connected ',
       uptime: process.uptime(),
       timestamp: new Date().toISOString()
     });
   } catch (error) {
     res.status(503).json({
       status: 'ERROR',
-      message: 'Server is running but database is disconnected',
-      database: 'Disconnected ❌',
-      error: error.message,
-      timestamp: new Date().toISOString()
+      message: 'Server running but DB disconnected ',
+      error: error.message
     });
   }
 });
 
-// Database status endpoint (detailed)
-app.get('/api/db-status', async (req, res) => {
-  try {
-    await db.sequelize.authenticate();
-    
-    const dbName = db.sequelize.config.database;
-    const tables = await db.sequelize.getQueryInterface().showAllTables();
-    
-    const [results] = await db.sequelize.query('SELECT 1 + 1 AS result');
-    
-    res.json({
-      status: 'connected',
-      database: dbName,
-      host: db.sequelize.config.host,
-      dialect: db.sequelize.config.dialect,
-      tablesCount: tables.length,
-      tables: tables,
-      testQuery: `✅ Passed (Result: ${results[0].result})`,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message,
-      type: error.name,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
 
-// Models info endpoint
-app.get('/api/models', (req, res) => {
-  const models = Object.keys(db).filter(key => key !== 'sequelize');
-  
-  const modelsInfo = models.map(modelName => {
-    const model = db[modelName];
-    const attributes = model.rawAttributes;
-    const attributeNames = Object.keys(attributes).map(attr => ({
-      name: attr,
-      type: attributes[attr].type.key,
-      allowNull: attributes[attr].allowNull !== false
-    }));
-    
-    return {
-      name: modelName,
-      tableName: model.tableName,
-      attributesCount: attributeNames.length,
-      attributes: attributeNames
-    };
-  });
-  
-  res.json({
-    totalModels: models.length,
-    models: modelsInfo
-  });
-});
 
-// Import routes
+/* ==============================================================================================
+    ROUTES IMPORT
+   Each route file contains logic related to a specific feature of the platform.
+   ============================================================================================== */
+
 const authRoutes = require('./routes/authRoutes');
 const caseRoutes = require('./routes/caseRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const documentRoutes = require('./routes/documentRoutes');
+
+
+//  Custom error handlers
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
-// Serve uploaded files statically
+
+
+//  Static file serving (uploaded documents accessible publicly)
+
 app.use('/uploads', express.static('uploads'));
 
-// Use routes
+
+
+//  Bind routes to the API paths
 app.use('/api/auth', authRoutes);
 app.use('/api/cases', caseRoutes);
 app.use('/api/ai', aiRoutes);
@@ -144,49 +144,55 @@ app.use('/api/messages', chatRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/documents', documentRoutes);
 
-// Error handlers (must be last)
+
+
+//  Catch-all error handlers (must always run last)
 app.use(notFound);
 app.use(errorHandler);
 
-// Start server with database connection
+
+
+/* ================================================================================================
+     START SERVER
+   Steps:
+     1. Connect to Database
+     2. Start Express server
+   ================================================================================================= */
+
 async function startServer() {
   try {
-    console.log('\n🚀 Starting LawConnect Backend Server...\n');
-    
-    // Connect to database first
+    console.log(`\n Starting LawConnect Backend...\n`);
+
     await connectDB();
-    
-    console.log('\n📦 Using Prisma ORM with type-safe queries!');
-    
-    // Start Express server
+    console.log(` Prisma connected successfully.`);
+
     app.listen(PORT, () => {
-      console.log(`\n✅ Server is running on port ${PORT}`);
-      console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`\n🔗 Available endpoints:`);
-      console.log(`   - http://localhost:${PORT}/`);
-      console.log(`   - http://localhost:${PORT}/health`);
-     
-      console.log(`\n💡 Press Ctrl+C to stop the server\n`);
+      console.log(`\n You are running on  http://localhost:${PORT}`);
+      console.log(` Mode: ${process.env.NODE_ENV || 'development'}`);
     });
+
   } catch (error) {
-    console.error('❌ Failed to start server:', error.message);
+    console.error(' Failed to launch server:', error.message);
     process.exit(1);
   }
 }
 
-// Handle graceful shutdown
+
+
+/* =================================================================================================
+    GRACEFUL SHUTDOWN
+   When user presses Ctrl+C, we close DB connection properly to avoid corruption.
+   ================================================================================================= */
+
 process.on('SIGINT', async () => {
-  console.log('\n\n🛑 Shutting down gracefully...');
-  try {
-    await disconnectDB();
-    process.exit(0);
-  } catch (error) {
-    console.error('❌ Error during shutdown:', error.message);
-    process.exit(1);
-  }
+  console.log('\n yes, go away safely as we have disconnected database for you but we will miss you ');
+  await disconnectDB();
+  process.exit(0);
 });
 
-// Start the server
+
+
+//  Start everything
 startServer();
 
 module.exports = app;

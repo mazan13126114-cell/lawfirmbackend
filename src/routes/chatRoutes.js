@@ -22,19 +22,19 @@ router.post('/', sendMessageValidation, sendMessage);
 // Get all conversations
 router.get('/conversations', getAllConversations);
 
-// Get unread count
-router.get('/unread/count', getUnreadCount);
+// // Get unread count
+// router.get('/unread/count', getUnreadCount);
 
-// Get conversation with specific user
-router.get('/conversation/:userId', getConversation);
+// // Get conversation with specific user
+// router.get('/conversation/:userId', getConversation);
 
-// Get messages for a case
-router.get('/case/:caseId', getCaseMessages);
+// // Get messages for a case
+// router.get('/case/:caseId', getCaseMessages);
 
-// Mark message as read
-router.put('/:id/read', markAsRead);
+// // Mark message as read
+// router.put('/:id/read', markAsRead);
 
-// Delete message
-router.delete('/:id', deleteMessage);
+// // Delete message
+// router.delete('/:id', deleteMessage);
 
 module.exports = router;
