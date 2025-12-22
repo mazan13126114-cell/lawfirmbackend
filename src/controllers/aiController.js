@@ -4,12 +4,12 @@
    analysis, and AI query history.
    ================================================================= */
 
-const { prisma } = require('../config/prisma'); // Import Prisma client for DB queries
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 const {
   sendAIMessage,       // Function to send messages to AI chatbot
   getLegalAdvice,      // Function to get AI-generated legal advice
   analyzeCaseProbability, // Function to predict case success probability
-  analyzeDocument,     // Function to analyze document content
   getLegalDisclaimer   // Function to get disclaimer text for AI responses
 } = require('../utils/aiService'); // Import AI service utilities
 
@@ -275,36 +275,8 @@ const analyzeDocumentAI = async (req, res, next) => {
       }
     }
 
-    // Perform document analysis
-    const analysis = await analyzeDocument(documentSummary, chatId);
-
-    if (!analysis.success) {
-      return res.status(500).json({ success: false, message: 'Failed to analyze document', error: analysis.error });
-    }
-
-    // Log AI document analysis
-    await prisma.aiLog.create({
-      data: {
-        userId,
-        caseId: caseId || null,
-        queryType: 'document_analysis',
-        prompt: documentSummary,
-        response: analysis.message,
-        model: 'GPT-5',
-        status: 'success',
-        metadata: { chatId: analysis.chatId }
-      }
-    });
-
-    res.json({
-      success: true,
-      data: {
-        analysis: analysis.message,
-        chatId: analysis.chatId,
-        disclaimer: getLegalDisclaimer(),
-        timestamp: analysis.timestamp
-      }
-    });
+    // Document analysis removed
+    return res.status(410).json({ success: false, message: 'Document analysis feature has been removed' });
   } catch (error) {
     next(error);
   }
@@ -315,5 +287,5 @@ module.exports = {
   getAILegalAdvice,
   predictCaseSuccess,
   getAIHistory,
-  analyzeDocumentAI
+  // analyzeDocumentAI removed
 };

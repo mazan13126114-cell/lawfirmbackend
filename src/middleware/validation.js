@@ -223,10 +223,11 @@ const assignLawyerValidation = [
 // MESSAGE VALIDATIONS
 // =======================
 
-// Send message validation
+// ✅ FIXED: Simplified message validation (only requires receiverId + message)
 const sendMessageValidation = [
   body('receiverId')
     .notEmpty().withMessage('Receiver ID is required')
+    .bail()
     .isInt().withMessage('Receiver ID must be a number'),
   
   body('message')
@@ -237,15 +238,6 @@ const sendMessageValidation = [
   body('caseId')
     .optional()
     .isInt().withMessage('Case ID must be a number'),
-  
-  body('messageType')
-    .optional()
-    .isIn(['text', 'file', 'notification', 'system'])
-    .withMessage('Invalid message type'),
-  
-  body('attachmentUrl')
-    .optional()
-    .isURL().withMessage('Invalid attachment URL'),
 
   validate
 ];

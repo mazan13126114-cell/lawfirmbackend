@@ -27,31 +27,29 @@ const errorHandler = (err, req, res, next) => {
   let message = err.message;
 
   // =======================
-  // Sequelize Validation Error
-  // =======================
-  if (err.name === 'SequelizeValidationError') {
-    statusCode = 400; // Bad Request
-    // Concatenate all validation messages
-    message = err.errors.map(e => e.message).join(', ');
-  }
-
-  // =======================
-  // Sequelize Unique Constraint Error
-  // =======================
-  if (err.name === 'SequelizeUniqueConstraintError') {
-    statusCode = 400;
-    message = 'This record already exists';
-    if (err.errors && err.errors[0]) {
-      message = `${err.errors[0].path} already exists`; // Specify which field
+  // Prisma client errors mapping
+  // PrismaClientKnownRequestError contains codes for constraint violations etc.
+  if (err.name === 'PrismaClientKnownRequestError') {
+    // Unique constraint violation
+    if (err.code === 'P2002') {
+      statusCode = 400;
+      message = 'Unique constraint failed';
+      if (err.meta && err.meta.target) message = `${err.meta.target.join(', ')} already exists`;
+    }
+    // Foreign key constraint or record not found
+    else if (err.code === 'P2003') {
+      statusCode = 400;
+      message = 'Invalid reference to related record';
+    } else {
+      statusCode = 400;
+      message = err.message;
     }
   }
 
-  // =======================
-  // Sequelize Foreign Key Constraint Error
-  // =======================
-  if (err.name === 'SequelizeForeignKeyConstraintError') {
+  // Prisma validation or runtime errors
+  if (err.name === 'PrismaClientValidationError' || err.name === 'PrismaClientUnknownRequestError') {
     statusCode = 400;
-    message = 'Invalid reference to related record';
+    message = err.message;
   }
 
   // =======================

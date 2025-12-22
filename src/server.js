@@ -18,9 +18,11 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 //  Database utilities from Prisma config
-const { connectDB, disconnectDB, prisma } = require('./config/prisma');
+// Using @prisma/client directly where needed; no shim import here
 
 //  Initialize Express Application
 const app = express();
@@ -38,7 +40,14 @@ app.use(helmet());
 
 //  CORS → Allows frontend (Vue) to talk to backend from another domain or port
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: [
+    process.env.CLIENT_URL || 'http://localhost:8080',
+    'http://localhost:8080',
+    'http://localhost:8081',
+    'http://localhost:5173',
+    'http://127.0.0.1:8080',
+    'http://127.0.0.1:8081'
+  ],
   credentials: true
 }));
 
@@ -121,8 +130,8 @@ const authRoutes = require('./routes/authRoutes');
 const caseRoutes = require('./routes/caseRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const lawyerRoutes = require('./routes/lawyerRoutes');
 const adminRoutes = require('./routes/adminRoutes');
-const documentRoutes = require('./routes/documentRoutes');
 
 
 //  Custom error handlers
@@ -130,9 +139,6 @@ const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 
 
-//  Static file serving (uploaded documents accessible publicly)
-
-app.use('/uploads', express.static('uploads'));
 
 
 
@@ -141,8 +147,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/cases', caseRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/messages', chatRoutes);
+app.use('/api/lawyers', lawyerRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/documents', documentRoutes);
+// Document endpoints removed per request (file upload/document scanning disabled)
 
 
 
@@ -163,8 +170,8 @@ async function startServer() {
   try {
     console.log(`\n Starting LawConnect Backend...\n`);
 
-    await connectDB();
-    console.log(` Prisma connected successfully.`);
+  await prisma.$connect();
+  console.log(` Prisma connected successfully.`);
 
     app.listen(PORT, () => {
       console.log(`\n You are running on  http://localhost:${PORT}`);
@@ -186,7 +193,7 @@ async function startServer() {
 
 process.on('SIGINT', async () => {
   console.log('\n yes, go away safely as we have disconnected database for you but we will miss you ');
-  await disconnectDB();
+  try { await prisma.$disconnect(); } catch (e) { /* ignore */ }
   process.exit(0);
 });
 

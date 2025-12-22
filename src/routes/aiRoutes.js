@@ -5,8 +5,7 @@ const {
   chatWithAI,
   getAILegalAdvice,
   predictCaseSuccess,
-  getAIHistory,
-  analyzeDocumentAI
+  getAIHistory
 } = require('../controllers/aiController');
 
 const { protect } = require('../middleware/auth');
@@ -80,24 +79,7 @@ router.post('/predict-case', [
   validate
 ], predictCaseSuccess);
 
-// -----------------------
-// Analyze document with AI
-// -----------------------
-// Takes a document summary and analyzes it with AI
-
-router.post('/analyze-document', [
-  body('documentSummary')
-    .trim()
-    .notEmpty()
-    .withMessage('Document summary is required'), // cannot be empty
-  body('caseId')
-    .optional()
-    .isInt(), // optional linked case
-  body('chatId')
-    .optional()
-    .isString(), // optional chat session
-  validate
-], analyzeDocumentAI);
+// Document analysis route removed per request
 
 // -----------------------
 // Get AI history

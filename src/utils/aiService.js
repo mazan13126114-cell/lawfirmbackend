@@ -142,23 +142,6 @@ Provide the probability as a number between 0-100, followed by detailed analysis
   return normalizeAIResponse(response);
 };
 
-/**
- * Analyze a document summary using AI
- * @param {string} documentSummary
- * @param {string|null} chatId
- * @returns {Promise<Object>}
- */
-const analyzeDocument = async (documentSummary, chatId = null) => {
-  const prompt = `As a legal document analyst, review this document summary and provide:
-1. Key legal points
-2. Potential risks or issues
-3. Recommendations
-
-Document Summary: ${documentSummary}`;
-  
-  const response = await sendAIMessage(prompt, chatId);
-  return normalizeAIResponse(response);
-};
 
 // =======================
 // Exported Functions
@@ -167,7 +150,6 @@ module.exports = {
   sendAIMessage,
   getLegalAdvice,
   analyzeCaseProbability,
-  analyzeDocument,
   generateChatId,
   getLegalDisclaimer
 };

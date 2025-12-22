@@ -7,13 +7,15 @@ const prisma = new PrismaClient();
 // =======================
 const sendMessage = async (req, res, next) => {
   try {
+    // Support both naming conventions from frontend: (receiverId, message) or (recipientId, content)
     let { receiverId, message, caseId, messageType, attachmentUrl, recipientId, content } = req.body;
     if (!receiverId && recipientId) receiverId = recipientId;
     if (!message && content) message = content;
-    const senderId = req.user.id;
+    const senderId = req.user.id; // <-- sender comes from authenticated token, must be trusted
 
+    // Check if receiver exists
     const receiver = await prisma.user.findUnique({
-      where: { id: receiverId }
+      where: { id: receiverId } // <-- risk if someone sends a fake receiverId
     });
     if (!receiver) {
       return res.status(404).json({
@@ -22,9 +24,10 @@ const sendMessage = async (req, res, next) => {
       });
     }
 
+    // If sending within a case, check case existence & access
     if (caseId) {
       const caseData = await prisma.case.findUnique({
-        where: { id: parseInt(caseId, 10) }
+        where: { id: parseInt(caseId, 10) } // <-- convert string to int
       });
 
       if (!caseData) {
@@ -34,6 +37,7 @@ const sendMessage = async (req, res, next) => {
         });
       }
 
+      // Verify sender is part of the case or admin
       const isSenderAuthorized = 
         caseData.clientId === senderId || 
         caseData.lawyerId === senderId ||
@@ -45,6 +49,7 @@ const sendMessage = async (req, res, next) => {
         });
       }
 
+      // Verify receiver is part of the case or admin
       const isReceiverAuthorized = 
         caseData.clientId === receiverId || 
         caseData.lawyerId === receiverId ||
@@ -57,6 +62,7 @@ const sendMessage = async (req, res, next) => {
       }
     }
 
+    // Create message record
     const newMessage = await prisma.message.create({
       data: {
         senderId,
@@ -91,6 +97,7 @@ const getCaseMessages = async (req, res, next) => {
     const caseId = parseInt(req.params.caseId);
     const userId = req.user.id;
 
+    // Verify user has access to this case
     const caseData = await prisma.case.findUnique({ 
       where: { id: caseId },
       select: { clientId: true, lawyerId: true }
@@ -145,9 +152,10 @@ const getUnreadCount = async (req, res, next) => {
 const getConversation = async (req, res, next) => {
   try {
     const currentUserId = req.user.id;
-    const otherUserId = parseInt(req.params.userId);
+    const otherUserId = parseInt(req.params.userId); // <-- parse to ensure numeric ID
     const { caseId, limit = 50, offset = 0 } = req.query;
 
+    // Query messages where either user is sender/receiver
     const where = {
       OR: [
         { senderId: currentUserId, receiverId: otherUserId },
@@ -156,6 +164,7 @@ const getConversation = async (req, res, next) => {
     };
     if (caseId) where.caseId = parseInt(caseId);
 
+    // Get messages including sender & receiver info
     const messages = await prisma.message.findMany({
       where,
       skip: parseInt(offset),
@@ -167,6 +176,7 @@ const getConversation = async (req, res, next) => {
       }
     });
 
+    // Mark unread messages as read
     await prisma.message.updateMany({
       where: {
         receiverId: currentUserId,
@@ -186,64 +196,60 @@ const getConversation = async (req, res, next) => {
 };
 
 // =======================
-// Get all conversations for current user (grouped by user AND case)
+// Get all conversations for current user
 // =======================
 const getAllConversations = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    const allMessages = await prisma.message.findMany({
-      where: {
-        OR: [
-          { senderId: userId },
-          { receiverId: userId }
-        ]
-      },
-      include: {
-        sender: { select: { id: true, name: true, profilePicture: true, role: true } },
-        receiver: { select: { id: true, name: true, profilePicture: true, role: true } },
-        case: { select: { id: true, title: true, caseNumber: true } }
-      },
-      orderBy: { createdAt: 'desc' }
+    // Get unique user IDs of all conversation partners
+    const sentMessages = await prisma.message.findMany({
+      where: { senderId: userId },
+      distinct: ['receiverId'],
+      select: { receiverId: true }
+    });
+    const receivedMessages = await prisma.message.findMany({
+      where: { receiverId: userId },
+      distinct: ['senderId'],
+      select: { senderId: true }
     });
 
-    const conversationMap = new Map();
+    const userIds = new Set([
+      ...sentMessages.map(m => m.receiverId),
+      ...receivedMessages.map(m => m.senderId)
+    ]);
 
-    for (const msg of allMessages) {
-      const otherUser = msg.senderId === userId ? msg.receiver : msg.sender;
-      const caseId = msg.caseId || null;
-      const key = `${otherUser.id}-${caseId}`;
-
-      if (!conversationMap.has(key)) {
-        conversationMap.set(key, {
-          user: otherUser,
-          lastMessage: msg,
-          case: msg.case,
-          caseId: msg.caseId
-        });
-      }
-    }
-
+    // Build conversation details
     const conversations = await Promise.all(
-      Array.from(conversationMap.values()).map(async (conv) => {
-        const unreadWhere = {
-          senderId: conv.user.id,
-          receiverId: userId,
-          isRead: false
-        };
-        
-        if (conv.caseId) {
-          unreadWhere.caseId = conv.caseId;
-        } else {
-          unreadWhere.caseId = null;
-        }
+      Array.from(userIds).map(async (otherUserId) => {
+        const lastMessage = await prisma.message.findFirst({
+          where: {
+            OR: [
+              { senderId: userId, receiverId: otherUserId },
+              { senderId: otherUserId, receiverId: userId }
+            ]
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            sender: { select: { id: true, name: true, profilePicture: true, role: true } },
+            receiver: { select: { id: true, name: true, profilePicture: true, role: true } },
+            case: { select: { id: true, title: true, caseNumber: true } }
+          }
+        });
 
-        const unreadCount = await prisma.message.count({ where: unreadWhere });
+        // Determine the “other user” object
+        const otherUser = lastMessage.senderId === userId ? lastMessage.receiver : lastMessage.sender;
 
-        return { ...conv, unreadCount };
+        // Count unread messages from this user
+        const unreadCount = await prisma.message.count({
+          where: { senderId: otherUserId, receiverId: userId, isRead: false }
+        });
+
+        return { user: otherUser, lastMessage, case: lastMessage.case, unreadCount };
       })
     );
 
+    // Sort by last message timestamp
     conversations.sort((a, b) => new Date(b.lastMessage.createdAt) - new Date(a.lastMessage.createdAt));
 
     res.json({ success: true, data: { conversations, count: conversations.length } });
@@ -254,7 +260,8 @@ const getAllConversations = async (req, res, next) => {
 
 module.exports = {
   sendMessage,
-  getCaseMessages,
+  getCaseMessages,    // ✅ Added
   getConversation,
-  getAllConversations
+  getAllConversations,
+  //getUnreadCount      // ✅ Exported
 };

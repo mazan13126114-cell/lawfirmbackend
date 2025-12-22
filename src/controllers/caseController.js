@@ -3,7 +3,8 @@
    and fetching statistics related to cases.
    ================================================================= */
 
-const { prisma } = require('../config/prisma');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 /* =========================================================================
     Create new case
@@ -107,7 +108,7 @@ const getCaseById = async (req, res, next) => {
       include: {
         client: { select: { id: true, name: true, email: true, phone: true, address: true } },
         lawyer: { select: { id: true, name: true, email: true, specialization: true, experience: true, licenseNumber: true } },
-        documents: { include: { uploader: { select: { id: true, name: true } } } },
+        // documents removed from response (document features disabled)
         messages: { take: 10, orderBy: { createdAt: 'desc' } }
       }
     });
@@ -293,12 +294,65 @@ const getCaseStats = async (req, res, next) => {
   }
 };
 
+/* =========================================================================
+   Get pending case requests for lawyers
+   ================================================================= */
+const getPendingRequests = async (req, res, next) => {
+  try {
+    // Lawyers should see pending cases that are unassigned or explicitly targeted
+    const where = { status: 'pending' };
+
+    // If lawyer requests, show only unassigned cases (they can self-assign)
+    if (req.user.role === 'lawyer') where.lawyerId = null;
+
+    const requests = await prisma.case.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: { client: { select: { id: true, name: true, email: true } } }
+    });
+
+    res.json({ success: true, data: { requests, count: requests.length } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* =========================================================================
+   Reject a pending case request (lawyer/admin)
+   ================================================================= */
+const rejectCaseRequest = async (req, res, next) => {
+  try {
+    const caseId = parseInt(req.params.id);
+
+    const caseData = await prisma.case.findUnique({ where: { id: caseId } });
+    if (!caseData) return res.status(404).json({ success: false, message: 'Case not found' });
+
+    // Only pending cases may be rejected
+    if (caseData.status !== 'pending') return res.status(400).json({ success: false, message: 'Only pending cases can be rejected' });
+
+    // If lawyer, allow reject only for unassigned cases
+    if (req.user.role === 'lawyer' && caseData.lawyerId) {
+      return res.status(403).json({ success: false, message: 'Not authorized to reject this case' });
+    }
+
+    const updated = await prisma.case.update({ where: { id: caseId }, data: { status: 'rejected' } });
+
+    // Optionally: create a notification or message to the client (omitted for simplicity)
+
+    res.json({ success: true, message: 'Case request rejected', data: { case: updated } });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createCase,
   getAllCases,
   getCaseById,
   updateCase,
   assignLawyer,
+  getPendingRequests,
+  rejectCaseRequest,
   deleteCase,
   getCaseStats
 };

@@ -14,7 +14,16 @@ const crypto = require('crypto'); // Node's built-in crypto module to generate s
    ================================================================= */
 const register = async (req, res, next) => {
   try {
+    if (!req || !req.body) {
+      return res.status(400).json({ success: false, message: 'Invalid request body' });
+    }
+
     const { name, email, password, role, phone, address, specialization, licenseNumber, experience } = req.body;
+
+    // Basic sanity checks (validation middleware should normally handle this)
+    if (!name || !email) {
+      return res.status(400).json({ success: false, message: 'Name and email are required' });
+    }
 
     // Check if user with this email already exists
     const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -39,8 +48,12 @@ const register = async (req, res, next) => {
       select: { id: true, name: true, email: true, role: true, isVerified: true } // return only needed fields
     });
 
-    // Generate JWT token for the user
-    const token = generateToken(user.id, user.role);
+    if (!user) {
+      return res.status(500).json({ success: false, message: 'Failed to create user' });
+    }
+
+    // Generate JWT token for the user (default role to 'client' if missing)
+    const token = generateToken(user.id, user.role || 'client');
 
     res.status(201).json({
       success: true,
@@ -185,9 +198,11 @@ const forgotPassword = async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.status(404).json({ success: false, message: 'No user found with this email' });
 
-    // Generate secure reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // token expires in 1 hour
+  // Generate secure reset token
+  const resetToken = crypto.randomBytes(32).toString('hex');
+          // Token expiry configurable via env var (hours). Default: 24 hours for more forgiving resets.
+          const expiryHours = parseFloat(process.env.PASSWORD_RESET_EXPIRE_HOURS || '24');
+          const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
 
     // Save token in DB
     await prisma.passwordReset.create({
@@ -200,8 +215,8 @@ const forgotPassword = async (req, res, next) => {
       }
     });
 
-    // URL user will click to reset password
-    const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
+  // URL user will click to reset password
+  const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
 
     res.json({
       success: true,
@@ -220,15 +235,54 @@ const resetPassword = async (req, res, next) => {
   try {
     const { token, password } = req.body;
 
+    // Accept either a raw token or a full URL containing ?token=...
+    let rawToken = token;
+    try {
+      // if token is a full URL, extract the token param
+      if (typeof rawToken === 'string' && rawToken.includes('token=')) {
+        try {
+          const maybeUrl = new URL(rawToken);
+          rawToken = maybeUrl.searchParams.get('token') || rawToken;
+        } catch (e) {
+          // not a full url, try basic parsing
+          const idx = rawToken.indexOf('token=');
+          rawToken = rawToken.substring(idx + 6).split('&')[0];
+        }
+      }
+    } catch (e) {
+      // keep raw token as-is
+    }
+
+    rawToken = decodeURIComponent(String(rawToken || '').trim());
+
+    if (!rawToken) return res.status(400).json({ success: false, message: 'Reset token is required' });
+
     // Find reset token in DB and include the related user
     const passwordReset = await prisma.passwordReset.findUnique({
-      where: { token },
+      where: { token: rawToken },
       include: { user: true }
     });
 
     if (!passwordReset) return res.status(400).json({ success: false, message: 'Invalid reset token' });
-    if (passwordReset.isUsed || new Date() > passwordReset.expiresAt) {
+
+    // If token already used, reject (single-use)
+    if (passwordReset.isUsed) {
+      return res.status(400).json({ success: false, message: 'Reset token has already been used' });
+    }
+
+    // Check expiry with a configurable grace period (minutes)
+    const now = new Date();
+    const graceMinutes = parseFloat(process.env.PASSWORD_RESET_GRACE_MINUTES || '10');
+    const effectiveExpiry = new Date(passwordReset.expiresAt.getTime() + graceMinutes * 60 * 1000);
+
+    // If now is beyond the expiry plus grace period, token is expired
+    if (now > effectiveExpiry) {
       return res.status(400).json({ success: false, message: 'Reset token has expired or already been used' });
+    }
+
+    // If we're past the official expiry but within the grace window, log a warning and continue
+    if (now > passwordReset.expiresAt) {
+      console.warn(`Reset token for user ${passwordReset.userId} used within grace window.`);
     }
 
     // Hash new password
