@@ -65,14 +65,15 @@ const sendAIMessage = async (message, chatId = null) => {
 
     const response = await axios.get(AI_API_BASE, { params, timeout: 30000 });
 
-    const rawMessage = response.data.message || response.data.response || response.data;
+    // ✅ FIXED: Extract the 'reply' field from the response
+    const aiReply = response.data.reply || response.data.message || response.data.response || response.data;
 
-    const messageStr = typeof rawMessage === 'string' ? rawMessage : JSON.stringify(rawMessage);
+    const messageStr = typeof aiReply === 'string' ? aiReply : JSON.stringify(aiReply);
 
     return {
       success: true,
       message: messageStr,
-      chatId: response.data.chatId || chatId || generateChatId(),
+      chatId: response.data.chatid || response.data.chatId || chatId || generateChatId(),
       model: 'GPT-4',
       timestamp: new Date()
     };
@@ -141,7 +142,6 @@ Provide the probability as a number between 0-100, followed by detailed analysis
 
   return normalizeAIResponse(response);
 };
-
 
 // =======================
 // Exported Functions
