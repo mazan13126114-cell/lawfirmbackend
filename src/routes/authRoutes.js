@@ -8,6 +8,7 @@ const {
   changePassword,
   forgotPassword,
   resetPassword,
+  resetPasswordSimple,
   logout
 } = require('../controllers/authController');
 
@@ -44,6 +45,10 @@ router.post('/forgot-password', forgotPasswordValidation, forgotPassword);
 // Reset password using token
 
 router.post('/reset-password', resetPasswordValidation, resetPassword);
+
+// Simple password reset (without email token)
+
+router.post('/reset-password-simple', resetPasswordSimple);
 
 // -----------------------
 // Protected routes (require authentication)

@@ -312,6 +312,39 @@ const logout = async (req, res, next) => {
   }
 };
 
+/* =========================================================================
+   Simple password reset (without email verification)
+   ================================================================= */
+const resetPasswordSimple = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validate inputs
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    }
+
+    // Find user by email
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Update user's password in DB
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword }
+    });
+
+    res.json({ success: true, message: 'Password has been reset successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Export all controller functions
 module.exports = {
   register,
@@ -321,5 +354,6 @@ module.exports = {
   changePassword,
   forgotPassword,
   resetPassword,
+  resetPasswordSimple,
   logout
 };
