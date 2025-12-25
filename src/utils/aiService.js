@@ -1,7 +1,9 @@
 // src/utils/aiService.js
+require('dotenv').config();
 const axios = require('axios');
 
-const AI_API_BASE = 'https://batgpt.vercel.app/api/gpt';
+const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
+const OPENAI_MODEL = 'gpt-4.1-mini'; // cost + quality balance
 
 // =======================
 // Utility Functions
@@ -9,7 +11,7 @@ const AI_API_BASE = 'https://batgpt.vercel.app/api/gpt';
 
 /**
  * Generate a unique chat ID for a new conversation
- * @returns {string} chatId
+ * @returns {string}
  */
 const generateChatId = () => {
   return `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -20,7 +22,7 @@ const generateChatId = () => {
  * @returns {string}
  */
 const getLegalDisclaimer = () => {
-  return "Legal Disclaimer: This AI-generated response is for informational purposes only and does not constitute legal advice. Please consult with a licensed attorney for specific legal matters concerning your case.";
+  return 'Legal Disclaimer: This AI-generated response is for informational purposes only and does not constitute legal advice. Please consult with a licensed attorney for specific legal matters concerning your case.';
 };
 
 /**
@@ -31,7 +33,6 @@ const getLegalDisclaimer = () => {
 const normalizeAIResponse = (aiResponse) => {
   const clone = { ...aiResponse };
 
-  // Ensure analysis/message are strings
   if (clone.analysis && typeof clone.analysis !== 'string') {
     clone.analysis = JSON.stringify(clone.analysis);
   }
@@ -40,7 +41,6 @@ const normalizeAIResponse = (aiResponse) => {
     clone.message = JSON.stringify(clone.message);
   }
 
-  // Ensure probability is numeric
   if (clone.probability !== undefined) {
     clone.probability = Number(clone.probability) || 0;
   }
@@ -53,32 +53,42 @@ const normalizeAIResponse = (aiResponse) => {
 // =======================
 
 /**
- * Send a message to the AI chatbot
- * @param {string} message - Message to AI
- * @param {string|null} chatId - Optional chat ID for conversation
- * @returns {Promise<Object>} AI response
+ * Send a message to OpenAI
+ * @param {string} message
+ * @param {string|null} chatId
+ * @returns {Promise<Object>}
  */
 const sendAIMessage = async (message, chatId = null) => {
   try {
-    const params = { message };
-    if (chatId) params.chatid = chatId;
+    const response = await axios.post(
+      OPENAI_API_URL,
+      {
+        model: OPENAI_MODEL,
+        input: message
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
 
-    const response = await axios.get(AI_API_BASE, { params, timeout: 30000 });
-
-    // ✅ FIXED: Extract the 'reply' field from the response
-    const aiReply = response.data.reply || response.data.message || response.data.response || response.data;
-
-    const messageStr = typeof aiReply === 'string' ? aiReply : JSON.stringify(aiReply);
+    const outputText =
+      response.data.output_text ||
+      response.data.output?.[0]?.content?.[0]?.text ||
+      'No response from AI';
 
     return {
       success: true,
-      message: messageStr,
-      chatId: response.data.chatid || response.data.chatId || chatId || generateChatId(),
-      model: 'GPT-4',
+      message: outputText,
+      chatId: chatId || generateChatId(),
+      model: response.data.model || OPENAI_MODEL,
       timestamp: new Date()
     };
   } catch (error) {
-    console.error('AI Service Error:', error.message);
+    console.error('OpenAI API Error:', error.response?.data || error.message);
 
     return {
       success: false,
@@ -89,30 +99,46 @@ const sendAIMessage = async (message, chatId = null) => {
   }
 };
 
+// =======================
+// Legal AI Functions
+// =======================
+
 /**
  * Get legal advice from AI
- * @param {string} query - Legal question/query
+ * @param {string} query
  * @param {string|null} chatId
  * @returns {Promise<Object>}
  */
 const getLegalAdvice = async (query, chatId = null) => {
-  const legalPrompt = `As a legal AI assistant for LawConnect, provide professional legal guidance for the following query. Be informative, accurate, and helpful, but remind the user to consult with a licensed attorney for specific legal advice:\n\n${query}`;
-  
+  const legalPrompt = `
+You are a legal AI assistant for LawConnect.
+
+Provide accurate, high-level legal information.
+Do NOT provide definitive legal advice.
+ALWAYS remind the user to consult a licensed attorney.
+
+User query:
+${query}
+`;
+
   const response = await sendAIMessage(legalPrompt, chatId);
   return normalizeAIResponse(response);
 };
 
 /**
  * Analyze case details and predict success probability
- * @param {Object} caseDetails - { title, description, caseType }
+ * @param {Object} caseDetails
  * @returns {Promise<Object>}
  */
 const analyzeCaseProbability = async (caseDetails) => {
   const { title, description, caseType } = caseDetails;
 
-  const prompt = `As a legal AI analyst, analyze this case and provide:
-1. A success probability percentage (0-100)
-2. Key strengths of the case
+  const prompt = `
+You are a legal AI analyst.
+
+Analyze the following case and provide:
+1. Success probability (0–100%)
+2. Key strengths
 3. Potential challenges
 4. Recommended actions
 
@@ -120,16 +146,15 @@ Case Type: ${caseType}
 Title: ${title}
 Description: ${description}
 
-Provide the probability as a number between 0-100, followed by detailed analysis.`;
+Include exactly one percentage value.
+`;
 
   const response = await sendAIMessage(prompt);
 
   if (response.success) {
-    const analysisStr = typeof response.message === 'string' ? response.message : JSON.stringify(response.message);
-
-    // Extract probability from AI text
+    const analysisStr = response.message;
     const probabilityMatch = analysisStr.match(/(\d+)%/);
-    const probability = probabilityMatch ? parseInt(probabilityMatch[1]) : 50;
+    const probability = probabilityMatch ? parseInt(probabilityMatch[1], 10) : 50;
 
     return normalizeAIResponse({
       success: true,
@@ -144,8 +169,9 @@ Provide the probability as a number between 0-100, followed by detailed analysis
 };
 
 // =======================
-// Exported Functions
+// Exports
 // =======================
+
 module.exports = {
   sendAIMessage,
   getLegalAdvice,

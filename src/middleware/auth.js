@@ -1,4 +1,4 @@
-// src/middleware/auth.js (Prisma Version)
+// src/middleware/auth.js
 const { verifyToken } = require('../utils/jwt');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
@@ -29,7 +29,7 @@ const protect = async (req, res, next) => {
 
     // Fetch user from database
     const user = await prisma.user.findUnique({
-      where: { id: decoded.id }, // Use ID from token payload
+      where: { id: decoded.id },
       select: {
         id: true,
         name: true,
@@ -68,10 +68,7 @@ const protect = async (req, res, next) => {
   }
 };
 
-// =======================
-// Role-based authorization middleware
-// =======================
-
+// ✅ THIS MUST BE UNCOMMENTED - Role-based authorization middleware
 const authorize = (...roles) => {
   return (req, res, next) => {
     // Ensure user exists on request (protect middleware should run first)
@@ -95,53 +92,7 @@ const authorize = (...roles) => {
   };
 };
 
-// =======================
-// Optional authentication middleware
-// =======================
-//          Allows routes to optionally use authentication
-//          If token exists and is valid, user is attached to req
-//          Otherwise, request continues without user
-
-const optionalAuth = async (req, res, next) => {
-  try {
-    let token;
-
-    // Check for Bearer token
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
-    }
-
-    if (token) {
-      const decoded = verifyToken(token);
-
-      // Fetch user from database
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.id },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          isActive: true
-        }
-      });
-
-      // Attach user if exists and active
-      if (user && user.isActive) {
-        req.user = user;
-      }
-    }
-
-    // Continue regardless of token
-    next();
-  } catch (error) {
-    // Ignore errors and continue without user
-    next();
-  }
-};
-
 module.exports = {
   protect,
-  authorize,
-  optionalAuth
+  authorize // ✅ MUST be exported
 };

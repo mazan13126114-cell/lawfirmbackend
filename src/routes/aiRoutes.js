@@ -3,9 +3,7 @@ const express = require('express');
 const router = express.Router();
 const {
   chatWithAI,
-  getAILegalAdvice,
   predictCaseSuccess,
-  getAIHistory
 } = require('../controllers/aiController');
 
 const { protect } = require('../middleware/auth');
@@ -36,26 +34,6 @@ router.post('/chat', [
 ], chatWithAI);
 
 // -----------------------
-// Get legal advice from AI
-// -----------------------
-// Provides legal guidance based on user query and optionally links to a case or chat
-
-router.post('/legal-advice', [
-  body('query')
-    .trim()
-    .notEmpty()
-    .withMessage('Legal query is required'), // query cannot be empty
-  body('chatId')
-    .optional()
-    .isString(), // optional chat session
-  body('caseId')
-    .optional()
-    .isInt()
-    .withMessage('Case ID must be a number'), // optional linked case
-  validate
-], getAILegalAdvice);
-
-// -----------------------
 // Predict case success
 // -----------------------
 // Uses AI to predict the probability of a case's success based on details
@@ -78,14 +56,5 @@ router.post('/predict-case', [
     .isIn(['civil', 'criminal', 'corporate', 'family', 'property', 'labor', 'other']), // validate case type
   validate
 ], predictCaseSuccess);
-
-// Document analysis route removed per request
-
-// -----------------------
-// Get AI history
-// -----------------------
-// Returns previous AI interactions for the authenticated user
-
-router.get('/history', getAIHistory);
 
 module.exports = router;

@@ -117,29 +117,6 @@ const getCaseMessages = async (req, res, next) => {
 };
 
 // =======================
-// Get total unread message count for current user
-// =======================
-const getUnreadCount = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-
-    const count = await prisma.message.count({
-      where: {
-        receiverId: userId,
-        isRead: false
-      }
-    });
-
-    res.json({
-      success: true,
-      data: { unreadCount: count }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// =======================
 // Get conversation with one user
 // =======================
 const getConversation = async (req, res, next) => {

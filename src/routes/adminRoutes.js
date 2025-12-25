@@ -10,20 +10,18 @@ const {
   getAllCasesAdmin,
   assignLawyerToCase,
   deleteCaseAdmin,
-  getAIStats,
-  getActivityLogs
+
 } = require('../controllers/adminController');
 
-const { protect, authorize } = require('../middleware/auth');
 const { body } = require('express-validator');
 const { validate } = require('../middleware/validation');
+const { protect } = require('../middleware/auth'); // ✅ Must be imported
 
 // =======================
 // ADMIN ROUTES
 // =======================
 // All routes below are protected: user must be logged in and have admin role
 router.use(protect);             // Ensure JWT token is valid
-router.use(authorize('admin'));  // Only admin users can access these routes
 
 // -----------------------
 // Dashboard & Statistics
@@ -32,11 +30,6 @@ router.use(authorize('admin'));  // Only admin users can access these routes
 
 router.get('/dashboard', getDashboardStats);
 
-// Get AI usage stats
-//router.get('/ai-stats', getAIStats);
-
-// Get activity logs for audit purposes
-//router.get('/activity', getActivityLogs);
 
 // -----------------------
 // User Management
@@ -79,8 +72,6 @@ router.put('/cases/:id/assign', [
 
 router.delete('/cases/:id', deleteCaseAdmin);
 
-// Admin AI stats & activity
-router.get('/ai-stats', getAIStats);
-router.get('/activity', getActivityLogs);
+
 
 module.exports = router;

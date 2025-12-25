@@ -8,7 +8,7 @@ const prisma = new PrismaClient();
 /* ===========================================================
    - Total user counts
    - Case distribution
-   - Recent activity
+   - Recent activity (nah couldn't finish in time)
    - Top performing lawyers
    =========================================================== */
 const getDashboardStats = async (req, res, next) => {
@@ -18,11 +18,11 @@ const getDashboardStats = async (req, res, next) => {
     const totalClients = await prisma.user.count({ where: { role: 'client' } });
     const totalLawyers = await prisma.user.count({ where: { role: 'lawyer' } });
     const totalCases = await prisma.case.count();
-  const totalMessages = await prisma.message.count();
-  // document features removed — do not query documents table
-  const totalAiQueries = await prisma.aiLog.count();
+    const totalMessages = await prisma.message.count();
+    // document features removed — do not query documents table
+    const totalAiQueries = await prisma.aiLog.count();
 
-    //  Active users → logged in within last 30 days
+    //  Active users → logged in within last 30 days (Used AI to get this)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const activeUsers = await prisma.user.count({
       where: { lastLogin: { gte: thirtyDaysAgo } }
@@ -54,7 +54,7 @@ const getDashboardStats = async (req, res, next) => {
     const recentMessages = await prisma.message.count({ where: { createdAt: { gte: sevenDaysAgo } } });
     const recentUsers = await prisma.user.count({ where: { createdAt: { gte: sevenDaysAgo } } });
 
-    //  Average probability score from AI case predictions
+    //  Average probability score from AI case predictions (if i find time then i will add this too)
     const avgProbabilityRaw = await prisma.case.aggregate({
       _avg: { probabilityScore: true }
     });
@@ -64,25 +64,7 @@ const getDashboardStats = async (req, res, next) => {
     const assignedCases = await prisma.case.count({ where: { lawyerId: { not: null } } });
     const unassignedCases = await prisma.case.count({ where: { lawyerId: null } });
 
-    //  Top 5 best performing lawyers (based on total handled cases)
-    const topLawyersRaw = await prisma.case.groupBy({
-      by: ['lawyerId'],
-      where: { lawyerId: { not: null } },
-      _count: { id: true },
-      orderBy: { _count: { id: 'desc' } },
-      take: 5
-    });
-
-    const topLawyers = await Promise.all(
-      topLawyersRaw.map(async l => {
-        const lawyer = await prisma.user.findUnique({
-          where: { id: l.lawyerId },
-          select: { id: true, name: true, email: true, specialization: true }
-        });
-        return { lawyer, caseCount: l._count.id };
-      })
-    );
-
+    //  Basic dashboard stats
     res.json({
       success: true,
       data: {
@@ -107,8 +89,8 @@ const getDashboardStats = async (req, res, next) => {
           newCases: recentCases,
           newMessages: recentMessages,
           newUsers: recentUsers
-        },
-        topLawyers
+        }
+        
       }
     });
   } catch (error) {
@@ -118,7 +100,7 @@ const getDashboardStats = async (req, res, next) => {
 
 
 /* ===========================================================
-    GET ALL USERS (With Search + Filters)
+    GET ALL USERS (With Search + Filters(filter is getting too much complex so not gonna use it))
    =========================================================== */
 const getAllUsers = async (req, res, next) => {
   try {
@@ -135,11 +117,14 @@ const getAllUsers = async (req, res, next) => {
         { email: { contains: search } }
       ];
     }
-    if (specialization) {
-      where.specialization = { contains: specialization };
-    }
 
-    //  Fetch paginated users + total count
+
+    //  REMOVED: specialization filter (not commonly used)
+    // if (specialization) {
+    //   where.specialization = { contains: specialization };
+    // }
+
+    //  Fetch all users + total count
     const [users, count] = await Promise.all([
       prisma.user.findMany({
         where,
@@ -285,42 +270,44 @@ module.exports = {
     } catch (error) { next(error); }
   },
 
-  getAIStats: async (req, res, next) => {
-    try {
-      const totalQueries = await prisma.aiLog.count();
-      const successfulQueries = await prisma.aiLog.count({ where: { status: 'success' } });
-      const failedQueries = await prisma.aiLog.count({ where: { status: 'error' } });
-      const queriesByTypeRaw = await prisma.aiLog.groupBy({ by: ['queryType'], _count: { id: true } });
-      const queriesByType = queriesByTypeRaw.map(r => ({ queryType: r.queryType, count: r._count.id }));
-      const avgResponseTime = (await prisma.aiLog.aggregate({ _avg: { responseTime: true } }))._avg.responseTime || 0;
-      const topAiUsersRaw = await prisma.aiLog.groupBy({ by: ['userId'], _count: { id: true }, orderBy: { _count: { id: 'desc' } }, take: 10 });
-      const topAiUsers = await Promise.all(topAiUsersRaw.map(async u => ({ user: await prisma.user.findUnique({ where: { id: u.userId }, select: { id: true, name: true, email: true, role: true } }), queryCount: u._count.id })));
-      const recentQueries = await prisma.aiLog.findMany({ take: 10, orderBy: { createdAt: 'desc' }, include: { user: { select: { id: true, name: true, role: true } } }, select: { id: true, queryType: true, prompt: true, status: true, createdAt: true, responseTime: true, user: true } });
+  //  REMOVED: AI Stats (not essential for basic admin functionality)
+  // getAIStats: async (req, res, next) => {
+  //   try {
+  //     const totalQueries = await prisma.aiLog.count();
+  //     const successfulQueries = await prisma.aiLog.count({ where: { status: 'success' } });
+  //     const failedQueries = await prisma.aiLog.count({ where: { status: 'error' } });
+  //     const queriesByTypeRaw = await prisma.aiLog.groupBy({ by: ['queryType'], _count: { id: true } });
+  //     const queriesByType = queriesByTypeRaw.map(r => ({ queryType: r.queryType, count: r._count.id }));
+  //     const avgResponseTime = (await prisma.aiLog.aggregate({ _avg: { responseTime: true } }))._avg.responseTime || 0;
+  //     const topAiUsersRaw = await prisma.aiLog.groupBy({ by: ['userId'], _count: { id: true }, orderBy: { _count: { id: 'desc' } }, take: 10 });
+  //     const topAiUsers = await Promise.all(topAiUsersRaw.map(async u => ({ user: await prisma.user.findUnique({ where: { id: u.userId }, select: { id: true, name: true, email: true, role: true } }), queryCount: u._count.id })));
+  //     const recentQueries = await prisma.aiLog.findMany({ take: 10, orderBy: { createdAt: 'desc' }, include: { user: { select: { id: true, name: true, role: true } } }, select: { id: true, queryType: true, prompt: true, status: true, createdAt: true, responseTime: true, user: true } });
+  //
+  //     res.json({ success: true, data: { overview: { totalQueries, successfulQueries, failedQueries, successRate: totalQueries > 0 ? ((successfulQueries / totalQueries) * 100).toFixed(2) : 0, avgResponseTime: parseInt(avgResponseTime || 0) }, queriesByType, topUsers: topAiUsers, recentQueries } });
+  //   } catch (error) { next(error); }
+  // },
 
-      res.json({ success: true, data: { overview: { totalQueries, successfulQueries, failedQueries, successRate: totalQueries > 0 ? ((successfulQueries / totalQueries) * 100).toFixed(2) : 0, avgResponseTime: parseInt(avgResponseTime || 0) }, queriesByType, topUsers: topAiUsers, recentQueries } });
-    } catch (error) { next(error); }
-  },
-
-  getActivityLogs: async (req, res, next) => {
-    try {
-      const { limit = 50 } = req.query;
-      const recentUsers = await prisma.user.findMany({ take: 10, orderBy: { createdAt: 'desc' }, select: { id: true, name: true, email: true, role: true, createdAt: true } });
-      const recentCases = await prisma.case.findMany({
-        take: 10,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          client: { select: { id: true, name: true } }
-        }
-      });
-      const recentMessages = await prisma.message.findMany({
-        take: parseInt(limit),
-        orderBy: { createdAt: 'desc' },
-        include: {
-          sender: { select: { id: true, name: true, role: true } },
-          receiver: { select: { id: true, name: true, role: true } }
-        }
-      });
-      res.json({ success: true, data: { recentUsers, recentCases, recentMessages } });
-    } catch (error) { next(error); }
-  }
+  //  REMOVED: Activity Logs (redundant with recentActivity in dashboard)
+  // getActivityLogs: async (req, res, next) => {
+  //   try {
+  //     const { limit = 50 } = req.query;
+  //     const recentUsers = await prisma.user.findMany({ take: 10, orderBy: { createdAt: 'desc' }, select: { id: true, name: true, email: true, role: true, createdAt: true } });
+  //     const recentCases = await prisma.case.findMany({
+  //       take: 10,
+  //       orderBy: { createdAt: 'desc' },
+  //       include: {
+  //         client: { select: { id: true, name: true } }
+  //       }
+  //     });
+  //     const recentMessages = await prisma.message.findMany({
+  //       take: parseInt(limit),
+  //       orderBy: { createdAt: 'desc' },
+  //       include: {
+  //         sender: { select: { id: true, name: true, role: true } },
+  //         receiver: { select: { id: true, name: true, role: true } }
+  //       }
+  //     });
+  //     res.json({ success: true, data: { recentUsers, recentCases, recentMessages } });
+  //   } catch (error) { next(error); }
+  // }
 };

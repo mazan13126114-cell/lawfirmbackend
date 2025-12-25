@@ -70,39 +70,7 @@ const loginValidation = [
   validate
 ];
 
-// Forgot password validation
-const forgotPasswordValidation = [
-  body('email')
-    .trim()
-    .notEmpty().withMessage('Email is required')
-    .isEmail().withMessage('Invalid email address')
-    .normalizeEmail(),
 
-  validate
-];
-
-// Reset password validation
-const resetPasswordValidation = [
-  body('token')
-    .notEmpty().withMessage('Reset token is required'),
-  
-  body('password')
-    .notEmpty().withMessage('Password is required')
-    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
-    .matches(/\d/).withMessage('Password must contain at least one number')
-    .matches(/[a-zA-Z]/).withMessage('Password must contain at least one letter'),
-  
-  body('confirmPassword')
-    .notEmpty().withMessage('Confirm password is required')
-    .custom((value, { req }) => {
-      if (value !== req.body.password) {
-        throw new Error('Passwords do not match');
-      }
-      return true;
-    }),
-
-  validate
-];
 
 // Update profile validation
 const updateProfileValidation = [
@@ -223,7 +191,7 @@ const assignLawyerValidation = [
 // MESSAGE VALIDATIONS
 // =======================
 
-// ✅ FIXED: Simplified message validation (only requires receiverId + message)
+//  FIXED: Simplified message validation (only requires receiverId + message)
 const sendMessageValidation = [
   body('receiverId')
     .notEmpty().withMessage('Receiver ID is required')
@@ -241,13 +209,12 @@ const sendMessageValidation = [
 
   validate
 ];
-
+// dont know if i will use eveyrthing but here it is
 module.exports = {
   validate,
   registerValidation,
   loginValidation,
-  forgotPasswordValidation,
-  resetPasswordValidation,
+  
   updateProfileValidation,
   changePasswordValidation,
   createCaseValidation,

@@ -38,14 +38,8 @@ const generateRefreshToken = (userId) => {
   );
 };
 
-// Decode token without verification (for debugging)
-const decodeToken = (token) => {
-  return jwt.decode(token);
-};
-
 module.exports = {
   generateToken,
   verifyToken,
-  generateRefreshToken,
-  decodeToken
+  generateRefreshToken
 };

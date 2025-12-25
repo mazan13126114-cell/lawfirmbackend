@@ -12,7 +12,7 @@
     "prisma:studio": "npx prisma studio"
   },
   "dependencies": {
-    "axios": "^1.6.0",
+    "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
@@ -21,22 +21,13 @@
     "express-validator": "^7.0.1",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.2",
     "mysql2": "^3.6.5",
-    "nodemailer": "^7.0.10",
-    "passport": "^0.7.0",
-    "passport-facebook": "^3.0.0",
-    "passport-google-oauth20": "^2.0.0",
-    "sequelize": "^6.35.2",
-    "socket.io": "^4.6.0"
+    "nodemailer": "^7.0.10"
   },
   "devDependencies": {
     "@prisma/client": "^6.19.0",
-    "autoprefixer": "^10.4.23",
     "nodemon": "^3.0.2",
-    "postcss": "^8.5.6",
-    "prisma": "^6.19.0",
-    "tailwindcss": "^4.1.18"
+    "prisma": "^6.19.0"
   },
   "engines": {
     "node": ">=18.0.0",

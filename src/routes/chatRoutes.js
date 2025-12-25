@@ -5,8 +5,8 @@ const {
   sendMessage,
   getConversation,
   getAllConversations,
-  getUnreadCount,
-  getCaseMessages  // ✅ Import new controller
+
+  getCaseMessages  
 } = require('../controllers/chatController');
 const { sendMessageValidation } = require('../middleware/validation');
 const { protect } = require('../middleware/auth');
@@ -19,17 +19,13 @@ router.post('/', sendMessageValidation, sendMessage);
 // Get all conversations
 router.get('/conversations', getAllConversations);
 
-// Get unread count
-// router.get('/unread/count', getUnreadCount);
+
 
 // Get conversation with specific user
 router.get('/conversation/:userId', getConversation);
 
-// ✅ Get messages for a specific case
+//  Get messages for a specific case
 router.get('/case/:caseId', getCaseMessages);
 
-// Other routes remain commented if not needed
-// router.put('/:id/read', markAsRead);
-// router.delete('/:id', deleteMessage);
 
 module.exports = router;

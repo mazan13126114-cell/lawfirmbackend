@@ -8,13 +8,13 @@ const {
   updateCase,
   deleteCase,
   assignLawyer,
-  getCaseStats,
+ 
   getPendingRequests,
   rejectCaseRequest
 } = require('../controllers/caseController');
 
-const { protect, authorize } = require('../middleware/auth');
 
+const { protect, authorize } = require('../middleware/auth');
 // All case routes require authentication
 router.use(protect);
 
@@ -42,7 +42,6 @@ router.put('/:id', updateCase);
 // Delete a case
 router.delete('/:id', deleteCase);
 
-// Case statistics
-router.get('/stats', getCaseStats);
+
 
 module.exports = router;

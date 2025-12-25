@@ -250,49 +250,7 @@ const deleteCase = async (req, res, next) => {
   }
 };
 
-/* =========================================================================
-    Get case statistics
-   ================================================================= */
-const getCaseStats = async (req, res, next) => {
-  try {
-    const where = {};
-    if (req.user.role === 'client') where.clientId = req.user.id;
-    if (req.user.role === 'lawyer') where.lawyerId = req.user.id;
 
-    const [
-      totalCases,
-      pendingCases,
-      assignedCases,
-      ongoingCases,
-      closedCases,
-      avgProbability
-    ] = await Promise.all([
-      prisma.case.count({ where }),
-      prisma.case.count({ where: { ...where, status: 'pending' } }),
-      prisma.case.count({ where: { ...where, status: 'assigned' } }),
-      prisma.case.count({ where: { ...where, status: 'ongoing' } }),
-      prisma.case.count({ where: { ...where, status: 'closed' } }),
-      prisma.case.aggregate({ where, _avg: { probabilityScore: true } })
-    ]);
-
-    const casesByType = await prisma.case.groupBy({ by: ['caseType'], where, _count: true });
-
-    res.json({
-      success: true,
-      data: {
-        totalCases,
-        pendingCases,
-        assignedCases,
-        ongoingCases,
-        closedCases,
-        averageProbability: avgProbability._avg.probabilityScore ? parseFloat(avgProbability._avg.probabilityScore).toFixed(2) : '0.00',
-        casesByType: casesByType.map(item => ({ type: item.caseType, count: item._count }))
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
 
 /* =========================================================================
    Get pending case requests for lawyers
@@ -354,5 +312,5 @@ module.exports = {
   getPendingRequests,
   rejectCaseRequest,
   deleteCase,
-  getCaseStats
+  
 };

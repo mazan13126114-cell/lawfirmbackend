@@ -7,8 +7,8 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const {
-  sendAIMessage,       // Function to send messages to AI chatbot
-  getLegalAdvice,      // Function to get AI-generated legal advice
+  sendAIMessage,    // Function to send messages to AI chatbot
+  
   analyzeCaseProbability, // Function to predict case success probability
   getLegalDisclaimer   // Function to get disclaimer text for AI responses
 } = require('../utils/aiService'); // Import AI service utilities
@@ -69,80 +69,11 @@ const chatWithAI = async (req, res, next) => {
   }
 };
 
-/* =================================================================
-    Get Legal Advice from AI
-   ================================================================= */
-const getAILegalAdvice = async (req, res, next) => {
-  try {
-    const { query, chatId, caseId } = req.body; // Extract input
-    const userId = req.user.id;
-
-    // Validate query input
-    if (!query || query.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Legal query is required'
-      });
-    }
-
-    // Optional: Check case access if caseId provided
-    if (caseId) {
-      const caseData = await prisma.case.findUnique({ where: { id: caseId } });
-      if (!caseData) {
-        return res.status(404).json({ success: false, message: 'Case not found' });
-      }
-
-      // Authorization: clients/lawyers can only access their own cases
-      if ((req.user.role === 'client' && caseData.clientId !== userId) ||
-          (req.user.role === 'lawyer' && caseData.lawyerId !== userId)) {
-        return res.status(403).json({ success: false, message: 'Not authorized to access this case' });
-      }
-    }
-
-    // Get AI-generated legal advice
-    const aiResponse = await getLegalAdvice(query, chatId);
-
-    if (!aiResponse.success) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to get legal advice',
-        error: aiResponse.error
-      });
-    }
-
-    // Log AI query to database
-    await prisma.aiLog.create({
-      data: {
-        userId,
-        caseId: caseId || null,
-        queryType: 'legal_research',
-        prompt: query,
-        response: aiResponse.message,
-        model: 'GPT-5',
-        status: 'success',
-        metadata: { chatId: aiResponse.chatId }
-      }
-    });
-
-    // Return AI legal advice with disclaimer
-    res.json({
-      success: true,
-      data: {
-        advice: aiResponse.message,
-        chatId: aiResponse.chatId,
-        disclaimer: getLegalDisclaimer(),
-        timestamp: aiResponse.timestamp
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
 
 /* =================================================================
     Predict Case Success Probability
    POST /api/ai/predict-case
-   Private access
+   Important but used AI in the process
    ================================================================= */
 const predictCaseSuccess = async (req, res, next) => {
   try {
@@ -221,71 +152,8 @@ const predictCaseSuccess = async (req, res, next) => {
   }
 };
 
-/* =================================================================
-   Get AI Conversation History
-   GET /api/ai/history
-   Private access
-   ================================================================= */
-const getAIHistory = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-    const { caseId, queryType, limit = 20 } = req.query;
-
-    // Build query filter for Prisma
-    const where = { userId };
-    if (caseId) where.caseId = caseId;
-    if (queryType) where.queryType = queryType;
-
-    const history = await prisma.aiLog.findMany({
-      where,
-      take: parseInt(limit),
-      orderBy: { createdAt: 'desc' },
-      select: ['id', 'queryType', 'prompt', 'response', 'confidence', 'createdAt', 'metadata']
-    });
-
-    res.json({ success: true, data: { history, count: history.length } });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/* =================================================================
-    Analyze Document
-   POST /api/ai/analyze-document
-   Private access
-   ================================================================= */
-const analyzeDocumentAI = async (req, res, next) => {
-  try {
-    const { documentSummary, caseId, chatId } = req.body;
-    const userId = req.user.id;
-
-    if (!documentSummary || documentSummary.trim().length === 0) {
-      return res.status(400).json({ success: false, message: 'Document summary is required' });
-    }
-
-    // Check case access if caseId provided
-    if (caseId) {
-      const caseData = await prisma.case.findUnique({ where: { id: caseId } });
-      if (!caseData) {
-        return res.status(404).json({ success: false, message: 'Case not found' });
-      }
-
-      if (req.user.role === 'client' && caseData.clientId !== userId) {
-        return res.status(403).json({ success: false, message: 'Not authorized' });
-      }
-    }
-
-    // Document analysis removed
-    return res.status(410).json({ success: false, message: 'Document analysis feature has been removed' });
-  } catch (error) {
-    next(error);
-  }
-};
 
 module.exports = {
   chatWithAI,
-  getAILegalAdvice,
   predictCaseSuccess,
-  getAIHistory,
-  // analyzeDocumentAI removed
 };
