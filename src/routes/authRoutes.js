@@ -6,8 +6,6 @@ const {
   getMe,
   updateProfile,
   changePassword,
- 
-
   resetPasswordSimple,
   logout
 } = require('../controllers/authController');
@@ -15,8 +13,6 @@ const {
 const {
   registerValidation,
   loginValidation,
-
-
   updateProfileValidation,
   changePasswordValidation
 } = require('../middleware/validation');
@@ -37,8 +33,6 @@ router.post('/register', registerValidation, register);
 // User login
 
 router.post('/login', loginValidation, login);
-
-
 
 // Simple password reset (without email token)
 
